@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class BackendClient:
     def __init__(self):
-        self.base_url = config.BACKEND_URL
+        self.base_url = config.BACKEND_URL.rstrip("/")
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {config.API_SECRET_TOKEN}"}
@@ -57,7 +57,13 @@ class BackendClient:
                 return await resp.json()
 
     async def upload_photo(self, telegram_id: int, photo_bytes: bytes, filename: str) -> dict:
-        """POST /photos/upload — загрузка фото на бэкенд."""
+        """
+        POST /photos/upload — загрузка фото на бэкенд с валидацией.
+
+        Возвращает:
+          {"ok": True, "photo_id": ..., "s3_key": ...}  — при успехе
+          {"ok": False, "errors": ["...", "..."]}        — при ошибке валидации
+        """
         async with aiohttp.ClientSession() as session:
             form = aiohttp.FormData()
             form.add_field("file", BytesIO(photo_bytes), filename=filename, content_type="image/jpeg")
@@ -67,8 +73,21 @@ class BackendClient:
                 data=form,
                 headers=self._headers(),
             ) as resp:
-                resp.raise_for_status()
-                return await resp.json()
+                body = await resp.json()
+
+                if resp.status == 200:
+                    return {"ok": True, **body}
+
+                # Ошибка валидации (400) или другая ошибка
+                detail = body.get("detail", {})
+                if isinstance(detail, dict):
+                    errors = detail.get("errors", [])
+                elif isinstance(detail, str):
+                    errors = [detail]
+                else:
+                    errors = ["Неизвестная ошибка"]
+
+                return {"ok": False, "errors": errors}
 
     async def generate_photo(self, telegram_id: int, photo_id: int, preset_id: int) -> dict:
         """POST /photos/generate — запуск генерации."""

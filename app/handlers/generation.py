@@ -12,6 +12,18 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+def _format_validation_errors(errors: list[str]) -> str:
+    """Форматировать список ошибок валидации в читаемое сообщение."""
+    if not errors:
+        return "❌ Неизвестная ошибка. Попробуй другое фото."
+
+    lines = ["❌ Фото не прошло проверку:\n"]
+    for err in errors:
+        lines.append(f"• {err}")
+    lines.append("\nИсправь замечания и отправь другое фото.")
+    return "\n".join(lines)
+
+
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("preset_"))
 async def handle_preset_choice(callback: CallbackQuery, state: FSMContext):
     """Пользователь выбрал пресет из галереи."""
@@ -65,18 +77,25 @@ async def _do_generation(message: Message, preset_id: int):
         await message.answer("⚠️ Не удалось скачать фото. Попробуй ещё раз.")
         return
 
-    # Загружаем на бэкенд
+    # Загружаем на бэкенд (с валидацией)
     try:
         upload_result = await backend.upload_photo(
             telegram_id=telegram_id,
             photo_bytes=photo_data,
             filename=f"{telegram_id}_{photo.file_id}.jpg",
         )
-        photo_id = upload_result["photo_id"]
     except Exception as e:
         logger.error(f"Ошибка загрузки фото на бэкенд: {e}")
         await message.answer("⚠️ Не удалось загрузить фото на сервер. Попробуй позже.")
         return
+
+    # Проверяем результат валидации
+    if not upload_result.get("ok"):
+        errors = upload_result.get("errors", [])
+        await message.answer(_format_validation_errors(errors))
+        return
+
+    photo_id = upload_result["photo_id"]
 
     # Запускаем генерацию
     await message.answer("⏳ Начинаю генерацию, подожди немного...")
