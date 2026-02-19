@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from aiogram import Router
@@ -5,9 +6,9 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 
 from app.api.backend import backend
-from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard, get_next_step_keyboard
-from app.keyboards.common import get_main_menu_keyboard
+from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 WELCOME_PROMO_IMAGE_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -30,10 +31,18 @@ WELCOME_EXAMPLE_IMAGE_PATHS = (
 async def handle_start(message: Message):
     user = message.from_user
 
-    await backend.create_user(
-        telegram_id=user.id,
-        username=user.username,
-    )
+    # Регистрация пользователя на бэкенде
+    try:
+        reg_data = await backend.register_user(
+            telegram_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+        )
+        generations = reg_data.get("generations_remaining", "?")
+    except Exception as e:
+        logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
+        generations = "?"
 
     welcome_text = (
         "Привет 👋\n"
@@ -44,6 +53,7 @@ async def handle_start(message: Message):
         "📸 Более 70 стильных образов\n"
         "🪄 Генерация фото по твоему описанию\n"
         "🌅 50+ продуманных фотосетов с разной атмосферой\n\n"
+        f"💎 Доступно генераций: {generations}\n\n"
         "Попробуй прямо сейчас — это займёт минуту!"
     )
 
@@ -76,7 +86,7 @@ async def handle_more_examples(callback: CallbackQuery):
         await callback.message.answer_media_group(
             media=[InputMediaPhoto(media=FSInputFile(str(path))) for path in existing_example_images],
         )
-    
+
     await callback.message.answer(
         "Вау, посмотри на эти кадры 🤯\n"
         "Первое фото — настоящее, а всё остальное создала нейросеть!\n\n"
@@ -86,7 +96,7 @@ async def handle_more_examples(callback: CallbackQuery):
         "👉 Попробуй прямо сейчас — загрузить свои фото",
         reply_markup=get_more_examples_keyboard()
     )
-    
+
     await callback.answer()
 
 
@@ -108,5 +118,5 @@ async def handle_try_now(callback: CallbackQuery):
         await callback.message.answer(
             try_now_text,
         )
-    
+
     await callback.answer()

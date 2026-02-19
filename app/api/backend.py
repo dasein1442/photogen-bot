@@ -1,92 +1,109 @@
-
 """
 Клиент для обращения к бэкенду photogen.
-
-Здесь будут все запросы к backend API.
-Пока это заготовка — методы возвращают заглушки.
-
-Когда бэкенд будет готов:
-1. Убери заглушки
-2. Раскомментируй HTTP-запросы
-3. Поменяй BACKEND_URL в .env
 """
+
+import asyncio
+import logging
+from io import BytesIO
 
 import aiohttp
 from app import config
+
+logger = logging.getLogger(__name__)
 
 
 class BackendClient:
     def __init__(self):
         self.base_url = config.BACKEND_URL
 
-    async def get_user(self, telegram_id: int) -> dict | None:
-        """Получить пользователя по telegram_id."""
-        # TODO: раскомментировать когда бэкенд готов
-        # async with aiohttp.ClientSession() as session:
-        #     async with session.get(f"{self.base_url}/users/{telegram_id}") as resp:
-        #         if resp.status == 200:
-        #             return await resp.json()
-        #         return None
-        return None  # заглушка
+    def _headers(self) -> dict:
+        return {"Authorization": f"Bearer {config.API_SECRET_TOKEN}"}
 
-    async def create_user(self, telegram_id: int, username: str | None) -> dict:
-        """Создать нового пользователя."""
-        # TODO: раскомментировать когда бэкенд готов
-        # async with aiohttp.ClientSession() as session:
-        #     payload = {"telegram_id": telegram_id, "username": username}
-        #     async with session.post(f"{self.base_url}/users", json=payload) as resp:
-        #         return await resp.json()
-        return {"telegram_id": telegram_id, "username": username}  # заглушка
+    async def register_user(
+        self, telegram_id: int, username: str | None, first_name: str | None, last_name: str | None
+    ) -> dict:
+        """POST /users/register — регистрация/обновление пользователя."""
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "telegram_id": telegram_id,
+                "username": username or "",
+                "first_name": first_name or "",
+                "last_name": last_name or "",
+            }
+            async with session.post(
+                f"{self.base_url}/users/register", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
 
-    async def moderate_photo(self, telegram_id: int, file_id: str) -> dict:
-        """Проверить фото на соответствие правилам модерации."""
-        # TODO: раскомментировать когда бэкенд готов
-        # async with aiohttp.ClientSession() as session:
-        #     payload = {"telegram_id": telegram_id, "file_id": file_id}
-        #     async with session.post(f"{self.base_url}/moderation/photo", json=payload) as resp:
-        #         return await resp.json()
-        return {
-            "is_valid": True,
-            "reason": None,
-            "telegram_id": telegram_id,
-            "file_id": file_id,
-        }  # заглушка
+    async def get_user(self, telegram_id: int) -> dict:
+        """GET /users/me?telegram_id=... — данные пользователя и баланс."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{self.base_url}/users/me",
+                params={"telegram_id": telegram_id},
+                headers=self._headers(),
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
 
-    async def generate_photo(self, telegram_id: int, source_file_id: str) -> dict:
-        """Сгенерировать фото на основе исходного изображения пользователя."""
-        # TODO: раскомментировать когда бэкенд готов
-        # async with aiohttp.ClientSession() as session:
-        #     payload = {"telegram_id": telegram_id, "source_file_id": source_file_id}
-        #     async with session.post(f"{self.base_url}/generation/photo", json=payload) as resp:
-        #         return await resp.json()
-        return {
-            "generated_file_id": source_file_id,
-            "telegram_id": telegram_id,
-        }  # заглушка
+    async def get_presets(self) -> list[dict]:
+        """GET /presets — список доступных стилей."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{self.base_url}/presets", headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
 
-    async def get_user_data(self, telegram_id: int) -> dict:
-        """Получить данные пользователя (количество генераций и т.д.)."""
-        # TODO: раскомментировать когда бэкенд готов
-        # async with aiohttp.ClientSession() as session:
-        #     async with session.get(f"{self.base_url}/users/{telegram_id}/data") as resp:
-        #         if resp.status == 200:
-        #             return await resp.json()
-        #         return {"generations_left": 0}
-        return {"generations_left": 3}  # заглушка
+    async def upload_photo(self, telegram_id: int, photo_bytes: bytes, filename: str) -> dict:
+        """POST /photos/upload — загрузка фото на бэкенд."""
+        async with aiohttp.ClientSession() as session:
+            form = aiohttp.FormData()
+            form.add_field("file", BytesIO(photo_bytes), filename=filename, content_type="image/jpeg")
+            async with session.post(
+                f"{self.base_url}/photos/upload",
+                params={"telegram_id": telegram_id},
+                data=form,
+                headers=self._headers(),
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
 
-    async def update_user_photo(self, telegram_id: int, file_id: str, photo_type: str) -> dict:
-        """Обновить фото пользователя (основное или дополнительное)."""
-        # TODO: раскомментировать когда бэкенд готов
-        # async with aiohttp.ClientSession() as session:
-        #     payload = {"telegram_id": telegram_id, "file_id": file_id, "photo_type": photo_type}
-        #     async with session.post(f"{self.base_url}/users/{telegram_id}/photo", json=payload) as resp:
-        #         return await resp.json()
-        return {
-            "success": True,
-            "telegram_id": telegram_id,
-            "file_id": file_id,
-            "photo_type": photo_type,
-        }  # заглушка
+    async def generate_photo(self, telegram_id: int, photo_id: int, preset_id: int) -> dict:
+        """POST /photos/generate — запуск генерации."""
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "telegram_id": telegram_id,
+                "photo_id": photo_id,
+                "preset_id": preset_id,
+            }
+            async with session.post(
+                f"{self.base_url}/photos/generate", json=payload, headers=self._headers()
+            ) as resp:
+                if resp.status == 402:
+                    return {"error": "no_balance"}
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def get_task_status(self, task_id: int) -> dict:
+        """GET /photos/task/{task_id} — статус задачи генерации."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{self.base_url}/photos/task/{task_id}", headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def poll_task(self, task_id: int, interval: int = 5, max_attempts: int = 24) -> dict:
+        """Поллинг задачи до завершения. Возвращает финальный статус."""
+        for _ in range(max_attempts):
+            result = await self.get_task_status(task_id)
+            status = result.get("status")
+            if status in ("completed", "failed"):
+                return result
+            await asyncio.sleep(interval)
+        return {"status": "timeout", "error_message": "Превышено время ожидания генерации"}
 
 
 # Один экземпляр на всё приложение
