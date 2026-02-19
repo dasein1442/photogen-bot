@@ -4,7 +4,7 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from app import config
-from app.handlers import start
+from app.handlers import get_all_routers
 
 
 async def main():
@@ -16,7 +16,8 @@ async def main():
     dp = Dispatcher()
 
     # Подключаем обработчики
-    dp.include_router(start.router)
+    for router in get_all_routers():
+        dp.include_router(router)
 
     # Запускаем бота
     await dp.start_polling(bot)
