@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher
 
 from app import config
 from app.handlers import get_all_routers
+from app.services.analytics_sdk import AnalyticsClient, AiogramAnalyticsMiddleware
 
 
 async def main():
@@ -15,12 +16,23 @@ async def main():
     bot = Bot(token=config.BOT_TOKEN)
     dp = Dispatcher()
 
+    # Аналитика
+    analytics = AnalyticsClient(url=config.ANALYTICS_URL, api_key=config.ANALYTICS_API_KEY)
+    await analytics.start()
+
+    middleware = AiogramAnalyticsMiddleware(analytics)
+    dp.message.middleware(middleware)
+    dp.callback_query.middleware(middleware)
+
     # Подключаем обработчики
     for router in get_all_routers():
         dp.include_router(router)
 
     # Запускаем бота
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await analytics.stop()
 
 
 if __name__ == "__main__":
