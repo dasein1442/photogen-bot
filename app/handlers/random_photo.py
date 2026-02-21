@@ -68,6 +68,13 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
         )
         return
 
+    if gen_result.get("error") == "no_presets":
+        await message.answer(
+            "😔 Сейчас нет доступных образов для случайного фото. Попробуй позже.",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        return
+
     task_id = gen_result.get("task_id")
     if not task_id:
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")

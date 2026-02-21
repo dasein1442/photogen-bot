@@ -123,6 +123,8 @@ class BackendClient:
             ) as resp:
                 if resp.status == 402:
                     return {"error": "no_balance"}
+                if resp.status == 404:
+                    return {"error": "no_presets"}
                 resp.raise_for_status()
                 return await resp.json()
 
