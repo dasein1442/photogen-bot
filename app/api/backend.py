@@ -47,11 +47,11 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def get_presets(self) -> list[dict]:
-        """GET /presets — список доступных стилей."""
+    async def get_photosessions(self) -> list[dict]:
+        """GET /photosessions — список доступных фотосессий."""
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{self.base_url}/presets", headers=self._headers()
+                f"{self.base_url}/photosessions", headers=self._headers()
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()
@@ -89,13 +89,13 @@ class BackendClient:
 
                 return {"ok": False, "errors": errors}
 
-    async def generate_photo(self, telegram_id: int, photo_id: int, preset_id: int) -> dict:
+    async def generate_photo(self, telegram_id: int, photo_id: int, photosession_id: int) -> dict:
         """POST /photos/generate — запуск генерации."""
         async with aiohttp.ClientSession() as session:
             payload = {
                 "telegram_id": telegram_id,
                 "photo_id": photo_id,
-                "preset_id": preset_id,
+                "photosession_id": photosession_id,
             }
             async with session.post(
                 f"{self.base_url}/photos/generate", json=payload, headers=self._headers()
@@ -114,7 +114,7 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def poll_task(self, task_id: int, interval: int = 5, max_attempts: int = 24) -> dict:
+    async def poll_task(self, task_id: int, interval: int = 5, max_attempts: int = 60) -> dict:
         """Поллинг задачи до завершения. Возвращает финальный статус."""
         for _ in range(max_attempts):
             result = await self.get_task_status(task_id)
