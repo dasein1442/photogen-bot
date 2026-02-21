@@ -89,12 +89,21 @@ class BackendClient:
 
                 return {"ok": False, "errors": errors}
 
-    async def generate_photo(self, telegram_id: int, photo_id: int, photosession_id: int) -> dict:
+    async def set_profile_photo(self, telegram_id: int, photo_id: int) -> dict:
+        """PUT /users/profile-photo — установка фото профиля."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "photo_id": photo_id}
+            async with session.put(
+                f"{self.base_url}/users/profile-photo", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def generate_photo(self, telegram_id: int, photosession_id: int) -> dict:
         """POST /photos/generate — запуск генерации."""
         async with aiohttp.ClientSession() as session:
             payload = {
                 "telegram_id": telegram_id,
-                "photo_id": photo_id,
                 "photosession_id": photosession_id,
             }
             async with session.post(
