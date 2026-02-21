@@ -8,6 +8,7 @@ from app.api.backend import backend
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.handlers.generation import _format_validation_errors, _do_generation
+from app.handlers.random_photo import _do_random_generation
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -62,9 +63,13 @@ async def _handle_upload(message: Message, state: FSMContext):
     # Проверяем, пришли ли из flow генерации
     data = await state.get_data()
     photosession_id = data.get("photosession_id")
+    random_mode = data.get("random_mode", False)
     await state.clear()
 
-    if photosession_id:
+    if random_mode:
+        # Пришли из flow случайной генерации
+        await _do_random_generation(message)
+    elif photosession_id:
         # Пришли из flow генерации — запускаем генерацию автоматически
         await _do_generation(message, photosession_id)
     else:

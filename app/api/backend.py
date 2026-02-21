@@ -114,6 +114,18 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def generate_random_photo(self, telegram_id: int) -> dict:
+        """POST /photos/generate-random — запуск случайной генерации."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id}
+            async with session.post(
+                f"{self.base_url}/photos/generate-random", json=payload, headers=self._headers()
+            ) as resp:
+                if resp.status == 402:
+                    return {"error": "no_balance"}
+                resp.raise_for_status()
+                return await resp.json()
+
     async def get_task_status(self, task_id: int) -> dict:
         """GET /photos/task/{task_id} — статус задачи генерации."""
         async with aiohttp.ClientSession() as session:
