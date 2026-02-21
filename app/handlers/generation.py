@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, URLInputFile
+from aiogram.types import Message, CallbackQuery, URLInputFile, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -24,11 +24,11 @@ def _format_validation_errors(errors: list[str]) -> str:
     return "\n".join(lines)
 
 
-@router.callback_query(lambda cb: cb.data and cb.data.startswith("preset_"))
-async def handle_preset_choice(callback: CallbackQuery, state: FSMContext):
-    """Пользователь выбрал пресет из галереи."""
-    preset_id = int(callback.data.split("_")[1])
-    await state.update_data(preset_id=preset_id)
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("photosession_"))
+async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext):
+    """Пользователь выбрал фотосессию."""
+    photosession_id = int(callback.data.split("_")[1])
+    await state.update_data(photosession_id=photosession_id)
     await state.set_state(GenerationStates.waiting_for_photo)
 
     await callback.message.answer(
@@ -40,27 +40,21 @@ async def handle_preset_choice(callback: CallbackQuery, state: FSMContext):
 
 @router.message(F.photo, GenerationStates.waiting_for_photo)
 async def handle_generation_photo(message: Message, state: FSMContext):
-    """Фото получено в состоянии генерации (после выбора пресета)."""
+    """Фото получено в состоянии генерации (после выбора фотосессии)."""
     data = await state.get_data()
-    preset_id = data.get("preset_id")
+    photosession_id = data.get("photosession_id")
 
-    if not preset_id:
-        await message.answer("Сначала выбери стиль в Галерее образов.")
+    if not photosession_id:
+        await message.answer("Сначала выбери фотосессию в меню.")
         await state.clear()
         return
 
-    await _do_generation(message, preset_id)
+    await _do_generation(message, photosession_id)
     await state.clear()
 
 
-@router.message(F.photo)
-async def handle_photo(message: Message):
-    """Фото без состояния — быстрая генерация с пресетом по умолчанию (id=1)."""
-    await _do_generation(message, preset_id=1)
-
-
-async def _do_generation(message: Message, preset_id: int):
-    """Общая логика: загрузка фото → генерация → поллинг → отправка результата."""
+async def _do_generation(message: Message, photosession_id: int):
+    """Общая логика: загрузка фото → генерация → поллинг → отправка результатов."""
     telegram_id = message.from_user.id
     photo = message.photo[-1]
 
@@ -104,7 +98,7 @@ async def _do_generation(message: Message, preset_id: int):
         gen_result = await backend.generate_photo(
             telegram_id=telegram_id,
             photo_id=photo_id,
-            preset_id=preset_id,
+            photosession_id=photosession_id,
         )
     except Exception as e:
         logger.error(f"Ошибка запуска генерации: {e}")
@@ -135,20 +129,39 @@ async def _do_generation(message: Message, preset_id: int):
     status = task_result.get("status")
 
     if status == "completed":
-        result_url = task_result.get("result_url")
-        if result_url:
-            try:
-                await message.answer_photo(photo=URLInputFile(result_url))
-            except Exception:
-                await message.answer(f"Фото готово! Скачай по ссылке:\n{result_url}")
+        results = task_result.get("results", [])
+        successful = [r for r in results if r.get("status") == "completed" and r.get("result_url")]
+        failed = [r for r in results if r.get("status") == "failed"]
+        total = len(results)
 
+        if not successful:
+            await message.answer("❌ Все генерации не удались. Попробуй ещё раз.")
+            return
+
+        # Отправляем результаты
+        try:
+            if len(successful) == 1:
+                await message.answer_photo(photo=URLInputFile(successful[0]["result_url"]))
+            else:
+                media = [InputMediaPhoto(media=URLInputFile(r["result_url"])) for r in successful]
+                await message.answer_media_group(media=media)
+        except Exception as e:
+            logger.error(f"Ошибка отправки результатов: {e}")
+            urls = "\n".join(r["result_url"] for r in successful)
+            await message.answer(f"Фото готовы! Скачай по ссылкам:\n{urls}")
+
+        # Сообщаем о неудачных
+        if failed:
             await message.answer(
-                "😍 Смотри, какая красота!\n\n"
-                "Хочешь ещё? Выбери стиль в Галерее образов или отправь новое фото 📸",
-                reply_markup=get_main_menu_keyboard(),
+                f"⚠️ {len(failed)} из {total} фото не удалось сгенерировать. "
+                "Кредиты за них возвращены."
             )
-        else:
-            await message.answer("⚠️ Генерация завершена, но результат недоступен.")
+
+        await message.answer(
+            "😍 Смотри, какая красота!\n\n"
+            "Хочешь ещё? Выбери фотосессию в меню или отправь новое фото 📸",
+            reply_markup=get_main_menu_keyboard(),
+        )
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
         await message.answer(f"❌ Генерация не удалась: {error_msg}")
