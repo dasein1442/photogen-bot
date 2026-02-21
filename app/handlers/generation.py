@@ -1,11 +1,11 @@
 import logging
 
-from aiogram import F, Router
+from aiogram import Router
 from aiogram.types import Message, CallbackQuery, URLInputFile, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
-from app.states.photo import GenerationStates
+from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 
 logger = logging.getLogger(__name__)
@@ -28,76 +28,53 @@ def _format_validation_errors(errors: list[str]) -> str:
 async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext):
     """Пользователь выбрал фотосессию."""
     photosession_id = int(callback.data.split("_")[1])
-    await state.update_data(photosession_id=photosession_id)
-    await state.set_state(GenerationStates.waiting_for_photo)
 
-    await callback.message.answer(
-        "Отлично! Теперь отправь фото для генерации 📸\n\n"
-        "💡 Лучше обычное селфи с хорошим светом — без фильтров и других людей."
-    )
-    await callback.answer()
-
-
-@router.message(F.photo, GenerationStates.waiting_for_photo)
-async def handle_generation_photo(message: Message, state: FSMContext):
-    """Фото получено в состоянии генерации (после выбора фотосессии)."""
-    data = await state.get_data()
-    photosession_id = data.get("photosession_id")
-
-    if not photosession_id:
-        await message.answer("Сначала выбери фотосессию в меню.")
-        await state.clear()
-        return
-
-    await _do_generation(message, photosession_id)
-    await state.clear()
-
-
-async def _do_generation(message: Message, photosession_id: int):
-    """Общая логика: загрузка фото → генерация → поллинг → отправка результатов."""
-    telegram_id = message.from_user.id
-    photo = message.photo[-1]
-
-    await message.answer("🔄 Загружаю фото на сервер...")
-
-    # Скачиваем фото из Telegram
+    # Проверяем, установлено ли фото профиля
     try:
-        bot = message.bot
-        file = await bot.get_file(photo.file_id)
-        file_bytes = await bot.download_file(file.file_path)
-        photo_data = file_bytes.read()
+        user_data = await backend.get_user(telegram_id=callback.from_user.id)
     except Exception as e:
-        logger.error(f"Ошибка скачивания фото из Telegram: {e}")
-        await message.answer("⚠️ Не удалось скачать фото. Попробуй ещё раз.")
+        logger.error(f"Ошибка получения данных пользователя: {e}")
+        await callback.message.answer("⚠️ Не удалось получить данные. Попробуй позже.")
+        await callback.answer()
         return
 
-    # Загружаем на бэкенд (с валидацией)
-    try:
-        upload_result = await backend.upload_photo(
-            telegram_id=telegram_id,
-            photo_bytes=photo_data,
-            filename=f"{telegram_id}_{photo.file_id}.jpg",
+    profile_photo_id = user_data.get("user", {}).get("profile_photo_id")
+
+    if profile_photo_id:
+        # Фото профиля есть — сразу генерируем
+        await callback.answer()
+        await _do_generation(callback.message, photosession_id, callback.from_user.id)
+    else:
+        # Фото профиля нет — просим загрузить
+        await state.update_data(photosession_id=photosession_id)
+        await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+
+        await callback.message.answer(
+            "📸 Для генерации нужно фото профиля.\n\n"
+            "Отправь своё фото в чат — оно будет сохранено и использовано "
+            "для всех будущих генераций.\n\n"
+            "**Несколько важных моментов к фото:**\n"
+            "• Используй крупный план (лучше селфи).\n"
+            "• Без других людей и животных.\n"
+            "• Лицо нейтральное или с лёгкой улыбкой.\n"
+            "• Голова прямо, без наклонов.\n"
+            "• Без очков и аксессуаров на лице.\n"
+            "• Хорошее освещение — залог качественного результата.",
+            parse_mode="Markdown",
         )
-    except Exception as e:
-        logger.error(f"Ошибка загрузки фото на бэкенд: {e}")
-        await message.answer("⚠️ Не удалось загрузить фото на сервер. Попробуй позже.")
-        return
+        await callback.answer()
 
-    # Проверяем результат валидации
-    if not upload_result.get("ok"):
-        errors = upload_result.get("errors", [])
-        await message.answer(_format_validation_errors(errors))
-        return
 
-    photo_id = upload_result["photo_id"]
+async def _do_generation(message: Message, photosession_id: int, telegram_id: int | None = None):
+    """Запуск генерации → поллинг → отправка результатов."""
+    if telegram_id is None:
+        telegram_id = message.from_user.id
 
-    # Запускаем генерацию
     await message.answer("⏳ Начинаю генерацию, подожди немного...")
 
     try:
         gen_result = await backend.generate_photo(
             telegram_id=telegram_id,
-            photo_id=photo_id,
             photosession_id=photosession_id,
         )
     except Exception as e:

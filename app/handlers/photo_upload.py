@@ -7,14 +7,14 @@ from aiogram.fsm.context import FSMContext
 from app.api.backend import backend
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
-from app.handlers.generation import _format_validation_errors
+from app.handlers.generation import _format_validation_errors, _do_generation
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 
-async def _handle_upload(message: Message, state: FSMContext, photo_type: str):
-    """Общая логика загрузки и валидации фото."""
+async def _handle_upload(message: Message, state: FSMContext):
+    """Загрузка фото, установка как profile photo, авто-генерация если пришли из flow."""
     await message.answer("🔄 Проверяю фотографию...")
 
     photo = message.photo[-1]
@@ -47,64 +47,48 @@ async def _handle_upload(message: Message, state: FSMContext, photo_type: str):
         await message.answer(_format_validation_errors(errors))
         return  # пользователь остаётся в том же состоянии, может отправить ещё
 
-    # Фото прошло валидацию и загружено
+    # Устанавливаем как profile photo
     photo_id = result.get("photo_id")
-    await state.update_data(photo_id=photo_id, photo_type=photo_type)
+    try:
+        await backend.set_profile_photo(
+            telegram_id=message.from_user.id,
+            photo_id=photo_id,
+        )
+    except Exception as e:
+        logger.error(f"Ошибка установки profile photo: {e}")
+        await message.answer("⚠️ Не удалось сохранить фото профиля. Попробуй позже.")
+        return
+
+    # Проверяем, пришли ли из flow генерации
+    data = await state.get_data()
+    photosession_id = data.get("photosession_id")
     await state.clear()
 
-    await message.answer(
-        "Готово ✅\n\n"
-        "Бот обработал твои фотографии, и теперь ты можешь создавать "
-        "снимки с собой в любом образе и месте.\n\n"
-        "Попробуй свой первый запрос прямо сейчас, выбирай любой доступный "
-        "инструмент, и генерируй шикарные фотографии 👇",
-        reply_markup=get_main_menu_keyboard(),
-    )
+    if photosession_id:
+        # Пришли из flow генерации — запускаем генерацию автоматически
+        await _do_generation(message, photosession_id)
+    else:
+        # Пришли из профиля — просто сообщаем об успехе
+        await message.answer(
+            "Готово ✅\n\n"
+            "Бот обработал твои фотографии, и теперь ты можешь создавать "
+            "снимки с собой в любом образе и месте.\n\n"
+            "Попробуй свой первый запрос прямо сейчас, выбирай любой доступный "
+            "инструмент, и генерируй шикарные фотографии 👇",
+            reply_markup=get_main_menu_keyboard(),
+        )
 
 
 @router.message(F.photo, PhotoUploadStates.waiting_for_main_photo)
 async def handle_main_photo_upload(message: Message, state: FSMContext):
-    await _handle_upload(message, state, photo_type="main")
+    await _handle_upload(message, state)
 
 
-@router.message(F.photo, PhotoUploadStates.waiting_for_additional_photo)
-async def handle_additional_photo_upload(message: Message, state: FSMContext):
-    await _handle_upload(message, state, photo_type="additional")
-
-
-@router.callback_query(lambda callback: callback.data == "photo_main")
-async def handle_photo_main(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(lambda callback: callback.data == "upload_profile_photo")
+async def handle_upload_profile_photo(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
 
     await state.set_state(PhotoUploadStates.waiting_for_main_photo)
-
-    photo_instructions_text = (
-        "Отправьте фотографию в чат!\n\n"
-        "После этого нейросеть проведет модерацию фотографии. Это займет 5 секунд. "
-        "Это нужно, чтобы убедиться, что ты соблюдаешь все условия ниже, "
-        "ведь плохая фотография = плохие генерации!\n\n"
-        "**Несколько важных моментов к фото:**\n"
-        "• Используй крупный план (лучше селфи).\n"
-        "• Без других людей и животных.\n"
-        "• Лицо нейтральное или с лёгкой улыбкой.\n"
-        "• Голова прямо, без наклонов.\n"
-        "• Без очков и аксессуаров на лице.\n"
-        "• Хорошее освещение — залог качественного результата."
-    )
-
-    await callback.message.answer(
-        photo_instructions_text,
-        parse_mode="Markdown",
-    )
-
-    await callback.answer()
-
-
-@router.callback_query(lambda callback: callback.data == "photo_additional")
-async def handle_photo_additional(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-
-    await state.set_state(PhotoUploadStates.waiting_for_additional_photo)
 
     photo_instructions_text = (
         "Отправьте фотографию в чат!\n\n"

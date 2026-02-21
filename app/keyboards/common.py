@@ -1,4 +1,4 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -20,15 +20,4 @@ def get_profile_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="Назад")],
         ],
         resize_keyboard=True
-    )
-
-
-def get_photo_type_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Основное", callback_data="photo_main"),
-                InlineKeyboardButton(text="Дополнительное", callback_data="photo_additional")
-            ],
-        ]
     )
