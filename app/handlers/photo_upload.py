@@ -1,17 +1,23 @@
 import logging
+from pathlib import Path
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, URLInputFile
+from aiogram.types import Message, CallbackQuery, URLInputFile, FSInputFile
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
+from app.keyboards.payment import get_payment_offer_keyboard
+from app.keyboards.onboarding import get_next_step_keyboard
 from app.handlers.generation import _format_validation_errors, _do_generation
 from app.handlers.random_photo import _do_random_generation
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+_ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+_WELCOME_PRICE_IMAGE_PATH = _ASSETS_DIR / "welcome_price.jpg"
 
 
 async def _handle_upload(message: Message, state: FSMContext):
@@ -145,9 +151,13 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
             await message.answer(f"Фото готово! Скачай по ссылке:\n{successful[0]['result_url']}")
 
         await message.answer(
-            "🔥 Вот твой первый AI-снимок!\n\n"
-            "Хочешь больше? Выбери фотосессию в меню и генерируй фото в любом образе 👇",
-            reply_markup=get_main_menu_keyboard(),
+            "😍 Смотри, какая ты получилась!\n\n"
+            "Это только проба — дальше можешь создавать реалистичные фото в любых образах:\n"
+            "👔 деловая съёмка\n"
+            "🏖 фотосессия на пляже\n"
+            "📸 стиль Pinterest или журнал Vogue\n\n"
+            "Хочешь увидеть полную серию? 👇",
+            reply_markup=get_next_step_keyboard(),
         )
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
