@@ -17,7 +17,7 @@ async def main():
     dp = Dispatcher()
 
     # Аналитика
-    analytics = AnalyticsClient(url=config.ANALYTICS_URL, api_key=config.ANALYTICS_API_KEY)
+    analytics = AnalyticsClient(url=config.ANALYTICS_URL, api_key=config.ANALYTICS_API_KEY, enabled=config.ANALYTICS_ENABLED)
     await analytics.start()
 
     middleware = AiogramAnalyticsMiddleware(analytics)
