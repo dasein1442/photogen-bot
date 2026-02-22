@@ -114,6 +114,20 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def generate_onboarding_photo(self, telegram_id: int) -> dict:
+        """POST /photos/generate-onboarding — онбординговая генерация по фиксированному пресету."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id}
+            async with session.post(
+                f"{self.base_url}/photos/generate-onboarding", json=payload, headers=self._headers()
+            ) as resp:
+                if resp.status == 402:
+                    return {"error": "no_balance"}
+                if resp.status == 404:
+                    return {"error": "no_presets"}
+                resp.raise_for_status()
+                return await resp.json()
+
     async def generate_random_photo(self, telegram_id: int) -> dict:
         """POST /photos/generate-random — запуск случайной генерации."""
         async with aiohttp.ClientSession() as session:

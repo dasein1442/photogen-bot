@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, URLInputFile
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -64,9 +64,13 @@ async def _handle_upload(message: Message, state: FSMContext):
     data = await state.get_data()
     photosession_id = data.get("photosession_id")
     random_mode = data.get("random_mode", False)
+    onboarding_mode = data.get("onboarding_mode", False)
     await state.clear()
 
-    if random_mode:
+    if onboarding_mode:
+        # Пришли из онбординга — запускаем генерацию по онбординговому пресету
+        await _do_onboarding_generation(message)
+    elif random_mode:
         # Пришли из flow случайной генерации
         await _do_random_generation(message)
     elif photosession_id:
@@ -82,6 +86,74 @@ async def _handle_upload(message: Message, state: FSMContext):
             "инструмент, и генерируй шикарные фотографии 👇",
             reply_markup=get_main_menu_keyboard(),
         )
+
+
+async def _do_onboarding_generation(message: Message, telegram_id: int | None = None):
+    """Онбординговая генерация по фиксированному пресету → поллинг → отправка результата."""
+    if telegram_id is None:
+        telegram_id = message.from_user.id
+
+    await message.answer("⏳ Создаю твоё первое фото, подожди немного...")
+
+    try:
+        gen_result = await backend.generate_onboarding_photo(telegram_id=telegram_id)
+    except Exception as e:
+        logger.error(f"Ошибка запуска онбординговой генерации: {e}")
+        await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
+        return
+
+    if gen_result.get("error") == "no_balance":
+        await message.answer(
+            "❌ Не удалось списать кредит. Попробуй позже.",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        return
+
+    if gen_result.get("error") == "no_presets":
+        await message.answer(
+            "😔 Пока нет доступных образов. Попробуй позже.",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        return
+
+    task_id = gen_result.get("task_id")
+    if not task_id:
+        await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
+        return
+
+    try:
+        task_result = await backend.poll_task(task_id)
+    except Exception as e:
+        logger.error(f"Ошибка поллинга задачи {task_id}: {e}")
+        await message.answer("⚠️ Ошибка при ожидании результата. Попробуй позже.")
+        return
+
+    status = task_result.get("status")
+
+    if status == "completed":
+        results = task_result.get("results", [])
+        successful = [r for r in results if r.get("status") == "completed" and r.get("result_url")]
+
+        if not successful:
+            await message.answer("❌ Генерация не удалась. Попробуй ещё раз.")
+            return
+
+        try:
+            await message.answer_photo(photo=URLInputFile(successful[0]["result_url"]))
+        except Exception as e:
+            logger.error(f"Ошибка отправки результата: {e}")
+            await message.answer(f"Фото готово! Скачай по ссылке:\n{successful[0]['result_url']}")
+
+        await message.answer(
+            "🔥 Вот твой первый AI-снимок!\n\n"
+            "Хочешь больше? Выбери фотосессию в меню и генерируй фото в любом образе 👇",
+            reply_markup=get_main_menu_keyboard(),
+        )
+    elif status == "failed":
+        error_msg = task_result.get("error_message", "Неизвестная ошибка")
+        await message.answer(f"❌ Генерация не удалась: {error_msg}")
+    else:
+        await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
 
 
 @router.message(F.photo, PhotoUploadStates.waiting_for_main_photo)

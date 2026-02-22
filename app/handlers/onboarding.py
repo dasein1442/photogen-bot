@@ -3,10 +3,12 @@ from pathlib import Path
 
 from aiogram import Router
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 
 from app.api.backend import backend
 from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard
+from app.states.photo import PhotoUploadStates
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -101,7 +103,7 @@ async def handle_more_examples(callback: CallbackQuery):
 
 
 @router.callback_query(lambda callback: callback.data == "try_now")
-async def handle_try_now(callback: CallbackQuery):
+async def handle_try_now(callback: CallbackQuery, state: FSMContext):
     try_now_text = (
         "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
         "Отправь 1 фото — я сделаю тебе тестовый снимок за несколько секунд 🤖✨\n\n"
@@ -118,5 +120,8 @@ async def handle_try_now(callback: CallbackQuery):
         await callback.message.answer(
             try_now_text,
         )
+
+    await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+    await state.update_data(onboarding_mode=True)
 
     await callback.answer()
