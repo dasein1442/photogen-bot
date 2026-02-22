@@ -20,11 +20,13 @@ class AnalyticsClient:
         api_key: str,
         auto_flush_interval: float = 5.0,  # секунд
         batch_size: int = 50,
+        enabled: bool = True,
     ):
         self.url = url.rstrip("/")
         self.api_key = api_key
         self.auto_flush_interval = auto_flush_interval
         self.batch_size = batch_size
+        self.enabled = enabled
         self._queue: deque = deque()
         self._flush_task: asyncio.Task | None = None
         self._client = httpx.AsyncClient(
@@ -34,10 +36,14 @@ class AnalyticsClient:
 
     async def start(self):
         """Запустить фоновую задачу автосброса. Вызывать при старте приложения."""
+        if not self.enabled:
+            return
         self._flush_task = asyncio.create_task(self._auto_flush_loop())
 
     async def stop(self):
         """Остановить и сбросить оставшиеся события. Вызывать при остановке приложения."""
+        if not self.enabled:
+            return
         if self._flush_task:
             self._flush_task.cancel()
         await self.flush()
@@ -51,6 +57,8 @@ class AnalyticsClient:
         timestamp: datetime | None = None,
     ) -> None:
         """Отправить одно событие (буферизованно)."""
+        if not self.enabled:
+            return
         self._queue.append({
             "event_name": event_name,
             "user_id": user_id,
@@ -67,6 +75,8 @@ class AnalyticsClient:
         properties: dict[str, Any] | None = None,
     ) -> dict:
         """Отправить событие немедленно (без буфера). Возвращает ответ сервера."""
+        if not self.enabled:
+            return {}
         response = await self._client.post(
             f"{self.url}/api/v1/events",
             json={
