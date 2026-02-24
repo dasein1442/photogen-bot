@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, URLInputFile, FSInputFile
+from aiogram.types import Message, CallbackQuery, BufferedInputFile, FSInputFile
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -10,7 +10,7 @@ from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_payment_offer_keyboard
 from app.keyboards.onboarding import get_next_step_keyboard
-from app.handlers.generation import _format_validation_errors, _do_generation
+from app.handlers.generation import _format_validation_errors, _do_generation, _download_photo
 from app.handlers.random_photo import _do_random_generation
 
 logger = logging.getLogger(__name__)
@@ -144,10 +144,16 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
             await message.answer("❌ Генерация не удалась. Попробуй ещё раз.")
             return
 
-        try:
-            await message.answer_photo(photo=URLInputFile(successful[0]["result_url"]))
-        except Exception as e:
-            logger.error(f"Ошибка отправки результата: {e}")
+        photo_data = await _download_photo(successful[0]["result_url"])
+        if photo_data:
+            try:
+                await message.answer_photo(
+                    photo=BufferedInputFile(photo_data, filename="photo.jpg"),
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки результата: {e}")
+                await message.answer(f"Фото готово! Скачай по ссылке:\n{successful[0]['result_url']}")
+        else:
             await message.answer(f"Фото готово! Скачай по ссылке:\n{successful[0]['result_url']}")
 
         await message.answer(

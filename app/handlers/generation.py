@@ -1,7 +1,9 @@
 import logging
+import time
 
+import aiohttp
 from aiogram import Router
-from aiogram.types import Message, CallbackQuery, URLInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, BufferedInputFile, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -10,6 +12,19 @@ from app.keyboards.common import get_main_menu_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+async def _download_photo(url: str) -> bytes | None:
+    """Скачать фото по URL. Возвращает байты или None при ошибке."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status == 200:
+                    return await resp.read()
+                logger.error(f"Ошибка скачивания фото: HTTP {resp.status} для {url}")
+    except Exception as e:
+        logger.error(f"Ошибка скачивания фото: {e}")
+    return None
 
 
 def _format_validation_errors(errors: list[str]) -> str:
@@ -67,20 +82,29 @@ async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext)
 
 async def _do_generation(message: Message, photosession_id: int, telegram_id: int | None = None):
     """Запуск генерации → поллинг → отправка результатов."""
+    t_total = time.monotonic()
     if telegram_id is None:
         telegram_id = message.from_user.id
 
     await message.answer("⏳ Начинаю генерацию, подожди немного...")
 
+    # 1. Запуск генерации на бэкенде
+    t0 = time.monotonic()
     try:
         gen_result = await backend.generate_photo(
             telegram_id=telegram_id,
             photosession_id=photosession_id,
         )
     except Exception as e:
-        logger.error(f"Ошибка запуска генерации: {e}")
+        logger.error(
+            f"Ошибка запуска генерации: {type(e).__name__}: {e} "
+            f"(telegram_id={telegram_id}, photosession_id={photosession_id})",
+            exc_info=True,
+        )
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
         return
+    api_time = time.monotonic() - t0
+    logger.info(f"[tg={telegram_id}] Backend /generate responded in {api_time:.2f}s")
 
     if gen_result.get("error") == "no_balance":
         await message.answer(
@@ -95,13 +119,16 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
         return
 
-    # Поллинг результата
+    # 2. Поллинг результата
+    t0 = time.monotonic()
     try:
         task_result = await backend.poll_task(task_id)
     except Exception as e:
         logger.error(f"Ошибка поллинга задачи {task_id}: {e}")
         await message.answer("⚠️ Ошибка при ожидании результата. Попробуй позже.")
         return
+    poll_time = time.monotonic() - t0
+    logger.info(f"[tg={telegram_id}] Polling task_id={task_id} took {poll_time:.2f}s, status={task_result.get('status')}")
 
     status = task_result.get("status")
 
@@ -115,17 +142,43 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
             await message.answer("❌ Все генерации не удались. Попробуй ещё раз.")
             return
 
-        # Отправляем результаты
-        try:
-            if len(successful) == 1:
-                await message.answer_photo(photo=URLInputFile(successful[0]["result_url"]))
-            else:
-                media = [InputMediaPhoto(media=URLInputFile(r["result_url"])) for r in successful]
-                await message.answer_media_group(media=media)
-        except Exception as e:
-            logger.error(f"Ошибка отправки результатов: {e}")
+        # 3. Скачиваем фото и отправляем в Telegram
+        t0 = time.monotonic()
+        photos_data = []
+        for r in successful:
+            data = await _download_photo(r["result_url"])
+            if data:
+                photos_data.append(data)
+
+        if photos_data:
+            try:
+                if len(photos_data) == 1:
+                    await message.answer_photo(
+                        photo=BufferedInputFile(photos_data[0], filename="photo.jpg"),
+                    )
+                else:
+                    media = [
+                        InputMediaPhoto(
+                            media=BufferedInputFile(data, filename=f"photo_{i}.jpg"),
+                        )
+                        for i, data in enumerate(photos_data)
+                    ]
+                    await message.answer_media_group(media=media)
+            except Exception as e:
+                logger.error(f"Ошибка отправки результатов: {e}")
+                urls = "\n".join(r["result_url"] for r in successful)
+                await message.answer(f"Фото готовы! Скачай по ссылкам:\n{urls}")
+        else:
             urls = "\n".join(r["result_url"] for r in successful)
             await message.answer(f"Фото готовы! Скачай по ссылкам:\n{urls}")
+        send_time = time.monotonic() - t0
+
+        total_time = time.monotonic() - t_total
+        logger.info(
+            f"[tg={telegram_id}] Generation complete: "
+            f"api={api_time:.2f}s, poll={poll_time:.2f}s, send={send_time:.2f}s, "
+            f"total={total_time:.2f}s, ok={len(successful)}/{total}"
+        )
 
         # Сообщаем о неудачных
         if failed:

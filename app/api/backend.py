@@ -106,12 +106,19 @@ class BackendClient:
                 "telegram_id": telegram_id,
                 "photosession_id": photosession_id,
             }
+            logger.info(f"generate_photo: telegram_id={telegram_id}, photosession_id={photosession_id}")
             async with session.post(
                 f"{self.base_url}/photos/generate", json=payload, headers=self._headers()
             ) as resp:
                 if resp.status == 402:
                     return {"error": "no_balance"}
-                resp.raise_for_status()
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.error(f"generate_photo failed: status={resp.status}, body={body}")
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=resp.status, message=body,
+                    )
                 return await resp.json()
 
     async def generate_onboarding_photo(self, telegram_id: int) -> dict:

@@ -1,10 +1,11 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.types import Message, URLInputFile
+from aiogram.types import Message, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
+from app.handlers.generation import _download_photo
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 
@@ -97,10 +98,16 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
             await message.answer("❌ Генерация не удалась. Попробуй ещё раз.")
             return
 
-        try:
-            await message.answer_photo(photo=URLInputFile(successful[0]["result_url"]))
-        except Exception as e:
-            logger.error(f"Ошибка отправки результата: {e}")
+        photo_data = await _download_photo(successful[0]["result_url"])
+        if photo_data:
+            try:
+                await message.answer_photo(
+                    photo=BufferedInputFile(photo_data, filename="photo.jpg"),
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки результата: {e}")
+                await message.answer(f"Фото готово! Скачай по ссылке:\n{successful[0]['result_url']}")
+        else:
             await message.answer(f"Фото готово! Скачай по ссылке:\n{successful[0]['result_url']}")
 
         await message.answer(
