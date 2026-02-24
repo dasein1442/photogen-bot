@@ -34,7 +34,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> На Windows вместо `source .venv/bin/activate` используй `.venv\Scripts\activate`
+> На Windows вместо `source .venv/bin/activate` используй `.venvScriptsactivate`
 
 ### 4. Запусти бота
 
@@ -61,3 +61,4 @@ telegram-bot/
     └── api/
         └── backend.py       — клиент для бэкенда (заготовка)
 ```
+
