@@ -14,17 +14,16 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-async def _download_photo(url: str) -> bytes | None:
-    """Скачать фото по URL. Возвращает байты или None при ошибке."""
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status == 200:
-                    return await resp.read()
-                logger.error(f"Ошибка скачивания фото: HTTP {resp.status} для {url}")
-    except Exception as e:
-        logger.error(f"Ошибка скачивания фото: {e}")
-    return None
+async def _download_photo(url: str) -> bytes:
+    """Скачать фото по URL. Возвращает байты. Райзит при ошибке."""
+    logger.info(f"[download] Начинаю скачивание: {url[:120]}...")
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            logger.info(f"[download] HTTP {resp.status}, content-type={resp.content_type}, content-length={resp.content_length}")
+            resp.raise_for_status()
+            data = await resp.read()
+            logger.info(f"[download] Скачано {len(data)} байт")
+            return data
 
 
 def _format_validation_errors(errors: list[str]) -> str:
@@ -144,34 +143,34 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
 
         # 3. Скачиваем фото и отправляем в Telegram
         t0 = time.monotonic()
+        logger.info(f"[tg={telegram_id}] Скачиваю {len(successful)} фото с S3...")
+        for i, r in enumerate(successful):
+            logger.info(f"[tg={telegram_id}] result[{i}]: status={r.get('status')}, url={r.get('result_url', 'NO_URL')[:120]}")
+
         photos_data = []
         for r in successful:
             data = await _download_photo(r["result_url"])
-            if data:
-                photos_data.append(data)
+            photos_data.append(data)
 
-        if photos_data:
-            try:
-                if len(photos_data) == 1:
-                    await message.answer_photo(
-                        photo=BufferedInputFile(photos_data[0], filename="photo.jpg"),
-                    )
-                else:
-                    media = [
-                        InputMediaPhoto(
-                            media=BufferedInputFile(data, filename=f"photo_{i}.jpg"),
-                        )
-                        for i, data in enumerate(photos_data)
-                    ]
-                    await message.answer_media_group(media=media)
-            except Exception as e:
-                logger.error(f"Ошибка отправки результатов: {e}")
-                urls = "\n".join(r["result_url"] for r in successful)
-                await message.answer(f"Фото готовы! Скачай по ссылкам:\n{urls}")
+        logger.info(f"[tg={telegram_id}] Скачано {len(photos_data)} фото, размеры: {[len(d) for d in photos_data]}")
+
+        if len(photos_data) == 1:
+            logger.info(f"[tg={telegram_id}] Отправляю 1 фото через answer_photo ({len(photos_data[0])} байт)")
+            await message.answer_photo(
+                photo=BufferedInputFile(photos_data[0], filename="photo.jpg"),
+            )
         else:
-            urls = "\n".join(r["result_url"] for r in successful)
-            await message.answer(f"Фото готовы! Скачай по ссылкам:\n{urls}")
+            logger.info(f"[tg={telegram_id}] Отправляю {len(photos_data)} фото через answer_media_group")
+            media = [
+                InputMediaPhoto(
+                    media=BufferedInputFile(data, filename=f"photo_{i}.jpg"),
+                )
+                for i, data in enumerate(photos_data)
+            ]
+            await message.answer_media_group(media=media)
+
         send_time = time.monotonic() - t0
+        logger.info(f"[tg={telegram_id}] Фото отправлены за {send_time:.2f}s")
 
         total_time = time.monotonic() - t_total
         logger.info(

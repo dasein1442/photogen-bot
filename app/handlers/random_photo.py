@@ -98,17 +98,13 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
             await message.answer("❌ Генерация не удалась. Попробуй ещё раз.")
             return
 
-        photo_data = await _download_photo(successful[0]["result_url"])
-        if photo_data:
-            try:
-                await message.answer_photo(
-                    photo=BufferedInputFile(photo_data, filename="photo.jpg"),
-                )
-            except Exception as e:
-                logger.error(f"Ошибка отправки результата: {e}")
-                await message.answer(f"Фото готово! Скачай по ссылке:\n{successful[0]['result_url']}")
-        else:
-            await message.answer(f"Фото готово! Скачай по ссылке:\n{successful[0]['result_url']}")
+        url = successful[0]["result_url"]
+        logger.info(f"[tg={telegram_id}] random: скачиваю фото, url={url[:120]}")
+        photo_data = await _download_photo(url)
+        logger.info(f"[tg={telegram_id}] random: скачано {len(photo_data)} байт, отправляю в Telegram")
+        await message.answer_photo(
+            photo=BufferedInputFile(photo_data, filename="photo.jpg"),
+        )
 
         await message.answer(
             "🎲 Вот твоё случайное фото!\n\n"
