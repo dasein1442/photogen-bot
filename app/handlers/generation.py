@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -13,6 +14,9 @@ from app.keyboards.common import get_main_menu_keyboard
 logger = logging.getLogger(__name__)
 router = Router()
 
+# Max 2 concurrent uploads to Telegram API to avoid flooding
+_tg_send_semaphore = asyncio.Semaphore(2)
+
 
 async def _download_photo(url: str) -> bytes:
     """Скачать фото по URL. Возвращает байты. Райзит при ошибке."""
@@ -24,6 +28,57 @@ async def _download_photo(url: str) -> bytes:
             data = await resp.read()
             logger.info(f"[download] Скачано {len(data)} байт")
             return data
+
+
+async def _send_photos(message: Message, photos_data: list[bytes], telegram_id: int):
+    """Send photos to Telegram with retry + single-photo fallback."""
+    max_retries = 3
+    delays = [5, 15, 30]
+
+    for attempt in range(max_retries):
+        try:
+            async with _tg_send_semaphore:
+                if len(photos_data) == 1:
+                    await message.answer_photo(
+                        photo=BufferedInputFile(photos_data[0], filename="photo.jpg"),
+                    )
+                else:
+                    media = [
+                        InputMediaPhoto(
+                            media=BufferedInputFile(data, filename=f"photo_{i}.jpg"),
+                        )
+                        for i, data in enumerate(photos_data)
+                    ]
+                    await message.answer_media_group(media=media)
+            return  # success
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(
+                    f"[tg={telegram_id}] Send attempt {attempt + 1} failed: {e}, "
+                    f"retrying in {delays[attempt]}s"
+                )
+                await message.answer("⏳ Отправка фото заняла слишком долго, пробую ещё раз...")
+                await asyncio.sleep(delays[attempt])
+            else:
+                logger.error(f"[tg={telegram_id}] All {max_retries} send attempts failed: {e}")
+
+    # Fallback: send photos one by one
+    logger.info(f"[tg={telegram_id}] Fallback: sending {len(photos_data)} photos one by one")
+    sent = 0
+    for i, data in enumerate(photos_data):
+        try:
+            async with _tg_send_semaphore:
+                await message.answer_photo(
+                    photo=BufferedInputFile(data, filename=f"photo_{i}.jpg"),
+                )
+            sent += 1
+        except Exception as e:
+            logger.error(f"[tg={telegram_id}] Failed to send photo {i}: {e}")
+
+    if sent == 0:
+        await message.answer("⚠️ Не удалось отправить фото. Попробуй запросить генерацию ещё раз.")
+    elif sent < len(photos_data):
+        logger.warning(f"[tg={telegram_id}] Sent {sent}/{len(photos_data)} photos in fallback mode")
 
 
 def _format_validation_errors(errors: list[str]) -> str:
@@ -141,42 +196,35 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
             await message.answer("❌ Все генерации не удались. Попробуй ещё раз.")
             return
 
-        # 3. Скачиваем фото и отправляем в Telegram
+        # 3. Скачиваем фото с S3 (параллельно)
         t0 = time.monotonic()
-        logger.info(f"[tg={telegram_id}] Скачиваю {len(successful)} фото с S3...")
+        logger.info(f"[tg={telegram_id}] Downloading {len(successful)} photos from S3...")
         for i, r in enumerate(successful):
             logger.info(f"[tg={telegram_id}] result[{i}]: status={r.get('status')}, url={r.get('result_url', 'NO_URL')[:120]}")
 
-        photos_data = []
-        for r in successful:
-            data = await _download_photo(r["result_url"])
-            photos_data.append(data)
+        photos_data = await asyncio.gather(*[
+            _download_photo(r["result_url"]) for r in successful
+        ])
+        photos_data = list(photos_data)
 
-        logger.info(f"[tg={telegram_id}] Скачано {len(photos_data)} фото, размеры: {[len(d) for d in photos_data]}")
+        download_time = time.monotonic() - t0
+        logger.info(
+            f"[tg={telegram_id}] Downloaded {len(photos_data)} photos in {download_time:.2f}s, "
+            f"sizes: {[len(d) for d in photos_data]}"
+        )
 
-        if len(photos_data) == 1:
-            logger.info(f"[tg={telegram_id}] Отправляю 1 фото через answer_photo ({len(photos_data[0])} байт)")
-            await message.answer_photo(
-                photo=BufferedInputFile(photos_data[0], filename="photo.jpg"),
-            )
-        else:
-            logger.info(f"[tg={telegram_id}] Отправляю {len(photos_data)} фото через answer_media_group")
-            media = [
-                InputMediaPhoto(
-                    media=BufferedInputFile(data, filename=f"photo_{i}.jpg"),
-                )
-                for i, data in enumerate(photos_data)
-            ]
-            await message.answer_media_group(media=media)
-
-        send_time = time.monotonic() - t0
-        logger.info(f"[tg={telegram_id}] Фото отправлены за {send_time:.2f}s")
+        # 4. Отправляем в Telegram (с retry + fallback)
+        t0 = time.monotonic()
+        logger.info(f"[tg={telegram_id}] Sending {len(photos_data)} photos to Telegram...")
+        await _send_photos(message, photos_data, telegram_id)
+        tg_send_time = time.monotonic() - t0
+        logger.info(f"[tg={telegram_id}] Telegram send took {tg_send_time:.2f}s")
 
         total_time = time.monotonic() - t_total
         logger.info(
             f"[tg={telegram_id}] Generation complete: "
-            f"api={api_time:.2f}s, poll={poll_time:.2f}s, send={send_time:.2f}s, "
-            f"total={total_time:.2f}s, ok={len(successful)}/{total}"
+            f"api={api_time:.2f}s, poll={poll_time:.2f}s, download={download_time:.2f}s, "
+            f"tg_send={tg_send_time:.2f}s, total={total_time:.2f}s, ok={len(successful)}/{total}"
         )
 
         # Сообщаем о неудачных
