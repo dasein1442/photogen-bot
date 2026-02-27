@@ -168,6 +168,41 @@ class BackendClient:
             await asyncio.sleep(interval)
         return {"status": "timeout", "error_message": "Превышено время ожидания генерации"}
 
+    async def get_price(self, telegram_id: int) -> dict:
+        """GET /payments/price — текущая цена для пользователя."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{self.base_url}/payments/price",
+                params={"telegram_id": telegram_id},
+                headers=self._headers(),
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def add_credits(self, telegram_id: int, generations: int, comment: str = "") -> dict:
+        """POST /payments/add-credits — добавить генерации после оплаты."""
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "telegram_id": telegram_id,
+                "generations": generations,
+                "comment": comment,
+            }
+            async with session.post(
+                f"{self.base_url}/payments/add-credits", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def notify_payment_flow(self, telegram_id: int) -> dict:
+        """POST /payments/flow-started — сообщить о начале оплаты."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id}
+            async with session.post(
+                f"{self.base_url}/payments/flow-started", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
 
 # Один экземпляр на всё приложение
 backend = BackendClient()

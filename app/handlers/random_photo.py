@@ -8,6 +8,7 @@ from app.api.backend import backend
 from app.handlers.generation import _download_photo
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
+from app.keyboards.payment import get_buy_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -65,7 +66,7 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
         await message.answer(
             "❌ У тебя закончились генерации!\n\n"
             "Пополни баланс, чтобы продолжить создавать фото.",
-            reply_markup=get_main_menu_keyboard(),
+            reply_markup=get_buy_keyboard(),
         )
         return
 

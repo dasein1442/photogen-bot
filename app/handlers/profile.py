@@ -79,6 +79,5 @@ async def handle_set_new_photo(message: Message, state: FSMContext):
 
 @router.message(F.text == "Приобрести генерации")
 async def handle_buy_generations(message: Message):
-    await message.answer(
-        "Функция покупки генераций будет доступна в ближайшее время! 🚀"
-    )
+    from app.handlers.payment import start_payment_flow
+    await start_payment_flow(message, message.from_user.id)

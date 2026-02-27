@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from app.api.backend import backend
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
+from app.keyboards.payment import get_buy_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -164,7 +165,7 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
         await message.answer(
             "❌ У тебя закончились генерации!\n\n"
             "Пополни баланс, чтобы продолжить создавать фото.",
-            reply_markup=get_main_menu_keyboard(),
+            reply_markup=get_buy_keyboard(),
         )
         return
 

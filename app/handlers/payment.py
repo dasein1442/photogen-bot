@@ -1,105 +1,91 @@
-from pathlib import Path
+import logging
 
-from aiogram import Router
-from aiogram.types import CallbackQuery, FSInputFile
+from aiogram import F, Router
+from aiogram.types import CallbackQuery, Message, PreCheckoutQuery, LabeledPrice
 
-from app.keyboards.payment import get_payment_offer_keyboard, get_payment_method_keyboard
+from app.api.backend import backend
 from app.keyboards.common import get_main_menu_keyboard
 
+logger = logging.getLogger(__name__)
 router = Router()
 
-WELCOME_PROMO_IMAGE_DIR = Path(__file__).resolve().parents[1] / "assets"
-WELCOME_PRICE_IMAGE_PATH = WELCOME_PROMO_IMAGE_DIR / "welcome_price.jpg"
 
+async def start_payment_flow(message: Message, telegram_id: int):
+    """Start the payment flow: notify backend, get price, send Stars invoice."""
+    # Notify backend about payment flow start (fires push events, sets discount timer)
+    try:
+        await backend.notify_payment_flow(telegram_id)
+    except Exception as e:
+        logger.error(f"Ошибка уведомления о начале оплаты: {e}")
 
-@router.callback_query(lambda callback: callback.data == "go_next")
-async def handle_go_next(callback: CallbackQuery):
-    await callback.message.delete()
+    # Get current price for this user (server-side, time-based discount)
+    try:
+        price_data = await backend.get_price(telegram_id)
+    except Exception as e:
+        logger.error(f"Ошибка получения цены: {e}")
+        await message.answer("⚠️ Не удалось получить цену. Попробуй позже.")
+        return
 
-    price_text = (
-        "🔥 Скидка 70% только первый час!\n"
-        "Полный доступ за 398₽ вместо 1500₽\n\n"
-        "Получи не просто пробу, а весь функционал навсегда 👇\n\n"
-        "– 70+ готовых образов\n"
-        "– Более 30 фотосессий в разных стилях\n"
-        "– Возможность создавать фото по своему тексту\n"
-        "– Улучшение и ретушь своих снимков\n"
-        "– Создание фото 'по примеру': загрузи картинку из Pinterest — получи такую же, но с собой\n\n"
-        "✨ Всё это по цене дешевле кофе с круассаном ☕🥐\n"
-        "Но результат останется навсегда — как твои лучшие фото.\n\n"
-        "Акция действует только 1 час ⏳\n"
-        "Не упусти шанс активировать доступ по сниженной цене."
+    stars = price_data["stars"]
+    generations = price_data["generations"]
+
+    await message.bot.send_invoice(
+        chat_id=message.chat.id,
+        title=f"{generations} генераций",
+        description=f"Покупка {generations} генераций для создания AI-фото",
+        payload=f"buy_{generations}_{telegram_id}",
+        currency="XTR",
+        prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
     )
 
-    if WELCOME_PRICE_IMAGE_PATH.exists():
-        await callback.message.answer_photo(
-            photo=FSInputFile(str(WELCOME_PRICE_IMAGE_PATH)),
-            caption=price_text,
-            reply_markup=get_payment_offer_keyboard(),
-        )
-    else:
-        await callback.message.answer(
-            price_text,
-            reply_markup=get_payment_offer_keyboard(),
-        )
 
+@router.callback_query(lambda cb: cb.data == "buy_generations")
+async def handle_buy_generations(callback: CallbackQuery):
+    """User clicked buy button (from no_balance, profile, etc.)."""
     await callback.answer()
+    await start_payment_flow(callback.message, callback.from_user.id)
 
 
-@router.callback_query(lambda callback: callback.data == "go_payment")
-async def handle_go_payment(callback: CallbackQuery):
-    await callback.message.delete()
-
-    payment_text = (
-        "Оплата 398₽\n\n"
-        "Вы оплачиваете: «Доступ в бота и 20 генераций». "
-        "Мы не имеем доступа к вашим личным и платежным данным. "
-        "Переходя к оплате, вы подтверждаете ознакомление и согласие с нашим "
-        "пользовательским соглашением (https://fotushka.com/pol) и политикой конфиденциальности (https://fotushka.com/pol).\n\n"
-        "Генерации - валюта нашего сервиса.\n"
-        "1 сгенерированное фото = 1 генерация.\n\n"
-        "В случае возникновения проблем обращайтесь в чат поддержки (https://t.me/fotushkasupport)."
-    )
-
-    await callback.message.answer(
-        payment_text,
-        reply_markup=get_payment_method_keyboard(),
-    )
-
-    await callback.answer()
+@router.pre_checkout_query()
+async def handle_pre_checkout(pre_checkout_query: PreCheckoutQuery):
+    """Approve pre-checkout query for Stars payment."""
+    await pre_checkout_query.answer(ok=True)
 
 
-@router.callback_query(lambda callback: callback.data == "pay_spb")
-async def handle_pay_spb(callback: CallbackQuery):
-    await callback.message.delete()
+@router.message(F.successful_payment)
+async def handle_successful_payment(message: Message):
+    """Handle successful Stars payment — add credits via backend."""
+    payment = message.successful_payment
+    telegram_id = message.from_user.id
 
-    await callback.message.answer(
-        "Спасибо за поддержку оплатой ❤️"
-    )
+    # Parse payload for generations count: "buy_{generations}_{telegram_id}"
+    try:
+        parts = payment.invoice_payload.split("_")
+        generations = int(parts[1])
+    except (IndexError, ValueError):
+        generations = 10
 
-    await callback.message.answer(
-        "Кнопка «Случайное фото» 🎲 создаст для тебя одно случайное изображение по готовым заданным стилям.\n\n"
-        "А по кнопке «Фотосессии» 📷 подготовим целый фотосет из шести фото в одном стиле на выбранную тобой тематику 💫\n\n"
-        "Попробуй свой первый запрос прямо сейчас, выбирай любой доступный инструмент, и генерируй шикарные фотографии 👇",
+    stars_paid = payment.total_amount
+
+    try:
+        result = await backend.add_credits(
+            telegram_id=telegram_id,
+            generations=generations,
+            comment=f"Stars payment: {stars_paid} XTR",
+        )
+        remaining = result.get("generations_remaining", "?")
+    except Exception as e:
+        logger.error(f"Ошибка добавления кредитов после оплаты: {e}")
+        await message.answer(
+            "⚠️ Оплата прошла, но не удалось начислить генерации. "
+            "Обратись в поддержку: @fotushkasupport"
+        )
+        return
+
+    await message.answer(
+        f"✅ Спасибо за покупку!\n\n"
+        f"Начислено: {generations} генераций\n"
+        f"Доступно: {remaining} генераций\n\n"
+        "Выбирай стиль и создавай фото 👇",
         reply_markup=get_main_menu_keyboard(),
     )
-
-    await callback.answer()
-
-
-@router.callback_query(lambda callback: callback.data == "pay_stars")
-async def handle_pay_stars(callback: CallbackQuery):
-    await callback.message.delete()
-
-    await callback.message.answer(
-        "Спасибо за поддержку оплатой ❤️"
-    )
-
-    await callback.message.answer(
-        "Кнопка «Случайное фото» 🎲 создаст для тебя одно случайное изображение по готовым заданным стилям.\n\n"
-        "А по кнопке «Фотосессии» 📷 подготовим целый фотосет из шести фото в одном стиле на выбранную тобой тематику 💫\n\n"
-        "Попробуй свой первый запрос прямо сейчас, выбирай любой доступный инструмент, и генерируй шикарные фотографии 👇",
-        reply_markup=get_main_menu_keyboard(),
-    )
-
-    await callback.answer()
