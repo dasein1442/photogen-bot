@@ -29,6 +29,41 @@ WELCOME_EXAMPLE_IMAGE_PATHS = (
 )
 
 
+@router.message(CommandStart(deep_link="upload_photo"))
+async def handle_start_upload_photo(message: Message, state: FSMContext):
+    """Deep link from onboarding reminder push — go straight to photo upload."""
+    user = message.from_user
+
+    # Регистрация (idempotent)
+    try:
+        await backend.register_user(
+            telegram_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+        )
+    except Exception as e:
+        logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
+
+    try_now_text = (
+        "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
+        "Отправь 1 фото — я сделаю тебе тестовый снимок за несколько секунд 🤖✨\n\n"
+        "💡 Лучше обычное селфи с хорошим светом — без фильтров и других людей.\n\n"
+        "🔒 Фото обрабатывается только нейросетью и не сохраняется — всё полностью приватно."
+    )
+
+    if TRY_NOW_IMAGE_PATH.exists():
+        await message.answer_photo(
+            photo=FSInputFile(str(TRY_NOW_IMAGE_PATH)),
+            caption=try_now_text,
+        )
+    else:
+        await message.answer(try_now_text)
+
+    await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+    await state.update_data(onboarding_mode=True)
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message):
     user = message.from_user
