@@ -2,7 +2,7 @@ import json
 import logging
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
+from aiogram.types import LabeledPrice
 from aio_pika.abc import AbstractChannel, AbstractIncomingMessage
 
 from app.api.backend import backend
@@ -38,39 +38,9 @@ class BotActionConsumer:
 
     async def _handle_send_invoice(self, data: dict) -> None:
         chat_id = data["chat_id"]
-        text_body = data.get("text_body", "")
-        text_buttons = data.get("text_buttons", [])
         delivery_id = data.get("delivery_id")
 
-        # 1. Send text message with buttons (if any)
-        if text_body:
-            reply_markup = None
-            if text_buttons:
-                keyboard = []
-                for b in text_buttons:
-                    btn = {"text": b["text"]}
-                    if "callback_data" in b:
-                        btn["callback_data"] = b["callback_data"]
-                    elif "url" in b:
-                        btn["url"] = b["url"]
-                    keyboard.append([btn])
-                reply_markup = InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [InlineKeyboardButton(**btn) for btn in row]
-                        for row in keyboard
-                    ]
-                )
-            try:
-                await self._bot.send_message(
-                    chat_id=chat_id,
-                    text=text_body,
-                    parse_mode="HTML",
-                    reply_markup=reply_markup,
-                )
-            except Exception as e:
-                logger.error("Failed to send text for delivery %s: %s", delivery_id, e)
-
-        # 2. Get current price from backend
+        # 1. Get current price from backend
         try:
             price_data = await backend.get_price(chat_id)
         except Exception as e:
