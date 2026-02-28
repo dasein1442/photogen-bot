@@ -1,11 +1,11 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.types import Message, BufferedInputFile
+from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
-from app.handlers.generation import _download_photo
+from app.services.tg_sender import download_photo, send_photos
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
@@ -20,7 +20,7 @@ async def handle_random_photo(message: Message, state: FSMContext):
     try:
         user_data = await backend.get_user(telegram_id=message.from_user.id)
     except Exception as e:
-        logger.error(f"Ошибка получения данных пользователя: {e}")
+        logger.error(f"Ошибка получения данных пользователя: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось получить данные. Попробуй позже.")
         return
 
@@ -58,7 +58,7 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
     try:
         gen_result = await backend.generate_random_photo(telegram_id=telegram_id)
     except Exception as e:
-        logger.error(f"Ошибка запуска случайной генерации: {e}")
+        logger.error(f"Ошибка запуска случайной генерации: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
         return
 
@@ -85,7 +85,7 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
     try:
         task_result = await backend.poll_task(task_id)
     except Exception as e:
-        logger.error(f"Ошибка поллинга задачи {task_id}: {e}")
+        logger.error(f"Ошибка поллинга задачи {task_id}: {e}", exc_info=True)
         await message.answer("⚠️ Ошибка при ожидании результата. Попробуй позже.")
         return
 
@@ -101,11 +101,25 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
 
         url = successful[0]["result_url"]
         logger.info(f"[tg={telegram_id}] random: скачиваю фото, url={url[:120]}")
-        photo_data = await _download_photo(url)
+        try:
+            photo_data = await download_photo(url)
+        except Exception as e:
+            logger.error(f"[tg={telegram_id}] random: download failed: {e}", exc_info=True)
+            await message.answer("Не удалось скачать фото. Попробуй позже.")
+            try:
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+            except Exception as re:
+                logger.error(f"[tg={telegram_id}] random: refund failed: {re}", exc_info=True)
+            return
+
         logger.info(f"[tg={telegram_id}] random: скачано {len(photo_data)} байт, отправляю в Telegram")
-        await message.answer_photo(
-            photo=BufferedInputFile(photo_data, filename="photo.jpg"),
-        )
+        send_result = await send_photos(message, [photo_data], telegram_id)
+
+        if send_result.failed > 0:
+            try:
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+            except Exception as re:
+                logger.error(f"[tg={telegram_id}] random: refund failed: {re}", exc_info=True)
 
         await message.answer(
             "🎲 Вот твоё случайное фото!\n\n"
@@ -117,3 +131,9 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
         await message.answer(f"❌ Генерация не удалась: {error_msg}")
     else:
         await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
+        if task_id:
+            try:
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+                logger.info(f"[tg={telegram_id}] random: refunded 1 generation for poll timeout")
+            except Exception as refund_err:
+                logger.error(f"[tg={telegram_id}] random: timeout refund failed: {refund_err}", exc_info=True)

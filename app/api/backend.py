@@ -168,6 +168,22 @@ class BackendClient:
             await asyncio.sleep(interval)
         return {"status": "timeout", "error_message": "Превышено время ожидания генерации"}
 
+    async def refund_delivery(self, telegram_id: int, task_id: int, failed_count: int) -> dict:
+        """POST /photos/refund-delivery -- refund credits for failed Telegram delivery."""
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "telegram_id": telegram_id,
+                "task_id": task_id,
+                "failed_count": failed_count,
+            }
+            async with session.post(
+                f"{self.base_url}/photos/refund-delivery",
+                json=payload,
+                headers=self._headers(),
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
     async def get_price(self, telegram_id: int) -> dict:
         """GET /payments/price — текущая цена для пользователя."""
         async with aiohttp.ClientSession() as session:

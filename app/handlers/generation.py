@@ -2,84 +2,18 @@ import asyncio
 import logging
 import time
 
-import aiohttp
 from aiogram import Router
-from aiogram.types import Message, CallbackQuery, BufferedInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
+from app.services.tg_sender import download_photo, send_photos, SendResult
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-# Max 2 concurrent uploads to Telegram API to avoid flooding
-_tg_send_semaphore = asyncio.Semaphore(2)
-
-
-async def _download_photo(url: str) -> bytes:
-    """Скачать фото по URL. Возвращает байты. Райзит при ошибке."""
-    logger.info(f"[download] Начинаю скачивание: {url[:120]}...")
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-            logger.info(f"[download] HTTP {resp.status}, content-type={resp.content_type}, content-length={resp.content_length}")
-            resp.raise_for_status()
-            data = await resp.read()
-            logger.info(f"[download] Скачано {len(data)} байт")
-            return data
-
-
-async def _send_photos(message: Message, photos_data: list[bytes], telegram_id: int):
-    """Send photos to Telegram with retry + single-photo fallback."""
-    max_retries = 3
-    delays = [5, 15, 30]
-
-    for attempt in range(max_retries):
-        try:
-            async with _tg_send_semaphore:
-                if len(photos_data) == 1:
-                    await message.answer_photo(
-                        photo=BufferedInputFile(photos_data[0], filename="photo.jpg"),
-                    )
-                else:
-                    media = [
-                        InputMediaPhoto(
-                            media=BufferedInputFile(data, filename=f"photo_{i}.jpg"),
-                        )
-                        for i, data in enumerate(photos_data)
-                    ]
-                    await message.answer_media_group(media=media)
-            return  # success
-        except Exception as e:
-            if attempt < max_retries - 1:
-                logger.warning(
-                    f"[tg={telegram_id}] Send attempt {attempt + 1} failed: {e}, "
-                    f"retrying in {delays[attempt]}s"
-                )
-                await message.answer("⏳ Отправка фото заняла слишком долго, пробую ещё раз...")
-                await asyncio.sleep(delays[attempt])
-            else:
-                logger.error(f"[tg={telegram_id}] All {max_retries} send attempts failed: {e}")
-
-    # Fallback: send photos one by one
-    logger.info(f"[tg={telegram_id}] Fallback: sending {len(photos_data)} photos one by one")
-    sent = 0
-    for i, data in enumerate(photos_data):
-        try:
-            async with _tg_send_semaphore:
-                await message.answer_photo(
-                    photo=BufferedInputFile(data, filename=f"photo_{i}.jpg"),
-                )
-            sent += 1
-        except Exception as e:
-            logger.error(f"[tg={telegram_id}] Failed to send photo {i}: {e}")
-
-    if sent == 0:
-        await message.answer("⚠️ Не удалось отправить фото. Попробуй запросить генерацию ещё раз.")
-    elif sent < len(photos_data):
-        logger.warning(f"[tg={telegram_id}] Sent {sent}/{len(photos_data)} photos in fallback mode")
 
 
 def _format_validation_errors(errors: list[str]) -> str:
@@ -103,7 +37,7 @@ async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext)
     try:
         user_data = await backend.get_user(telegram_id=callback.from_user.id)
     except Exception as e:
-        logger.error(f"Ошибка получения данных пользователя: {e}")
+        logger.error(f"Ошибка получения данных пользователя: {e}", exc_info=True)
         await callback.message.answer("⚠️ Не удалось получить данные. Попробуй позже.")
         await callback.answer()
         return
@@ -179,7 +113,7 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
     try:
         task_result = await backend.poll_task(task_id)
     except Exception as e:
-        logger.error(f"Ошибка поллинга задачи {task_id}: {e}")
+        logger.error(f"Ошибка поллинга задачи {task_id}: {e}", exc_info=True)
         await message.answer("⚠️ Ошибка при ожидании результата. Попробуй позже.")
         return
     poll_time = time.monotonic() - t0
@@ -203,10 +137,36 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
         for i, r in enumerate(successful):
             logger.info(f"[tg={telegram_id}] result[{i}]: status={r.get('status')}, url={r.get('result_url', 'NO_URL')[:120]}")
 
-        photos_data = await asyncio.gather(*[
-            _download_photo(r["result_url"]) for r in successful
-        ])
-        photos_data = list(photos_data)
+        download_results = await asyncio.gather(
+            *[download_photo(r["result_url"]) for r in successful],
+            return_exceptions=True,
+        )
+
+        # Filter out download failures
+        photos_data = []
+        download_failed = 0
+        for i, result in enumerate(download_results):
+            if isinstance(result, Exception):
+                logger.error(
+                    f"[tg={telegram_id}] Failed to download photo {i}: {result}",
+                    exc_info=result,
+                )
+                download_failed += 1
+            else:
+                photos_data.append(result)
+
+        if not photos_data:
+            logger.error(f"[tg={telegram_id}] All {len(download_results)} downloads failed", exc_info=True)
+            await message.answer("Не удалось скачать фото. Попробуй позже.")
+            try:
+                await backend.refund_delivery(
+                    telegram_id=telegram_id,
+                    task_id=task_id,
+                    failed_count=len(successful),
+                )
+            except Exception as e:
+                logger.error(f"[tg={telegram_id}] Refund request failed: {e}", exc_info=True)
+            return
 
         download_time = time.monotonic() - t0
         logger.info(
@@ -217,7 +177,24 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
         # 4. Отправляем в Telegram (с retry + fallback)
         t0 = time.monotonic()
         logger.info(f"[tg={telegram_id}] Sending {len(photos_data)} photos to Telegram...")
-        await _send_photos(message, photos_data, telegram_id)
+        send_result: SendResult = await send_photos(message, photos_data, telegram_id)
+
+        total_failed = download_failed + send_result.failed
+        if total_failed > 0:
+            logger.warning(
+                f"[tg={telegram_id}] Delivery incomplete: "
+                f"download_failed={download_failed}, send_failed={send_result.failed}"
+            )
+            try:
+                await backend.refund_delivery(
+                    telegram_id=telegram_id,
+                    task_id=task_id,
+                    failed_count=total_failed,
+                )
+                logger.info(f"[tg={telegram_id}] Refunded {total_failed} generations for delivery failure")
+            except Exception as e:
+                logger.error(f"[tg={telegram_id}] Refund request failed: {e}", exc_info=True)
+
         tg_send_time = time.monotonic() - t0
         logger.info(f"[tg={telegram_id}] Telegram send took {tg_send_time:.2f}s")
 
@@ -245,3 +222,22 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
         await message.answer(f"❌ Генерация не удалась: {error_msg}")
     else:
         await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
+        if task_id:
+            logger.error(f"[tg={telegram_id}] Poll timeout for task_id={task_id}, attempting refund", exc_info=True)
+            try:
+                task_data = await backend.get_task_status(task_id)
+                results = task_data.get("results", [])
+                # Refund for all results that are not already refunded (failed status is refunded by backend)
+                completed_count = sum(1 for r in results if r.get("status") == "completed") if results else 0
+                pending_count = sum(1 for r in results if r.get("status") in ("pending", "processing")) if results else 0
+                refund_count = completed_count + pending_count
+                if refund_count == 0:
+                    refund_count = 1  # At minimum, refund 1 credit
+                await backend.refund_delivery(
+                    telegram_id=telegram_id,
+                    task_id=task_id,
+                    failed_count=refund_count,
+                )
+                logger.info(f"[tg={telegram_id}] Refunded {refund_count} generations for poll timeout")
+            except Exception as refund_err:
+                logger.error(f"[tg={telegram_id}] Timeout refund failed: {refund_err}", exc_info=True)

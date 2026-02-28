@@ -1,14 +1,15 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, BufferedInputFile
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
-from app.handlers.generation import _format_validation_errors, _do_generation, _download_photo
+from app.handlers.generation import _format_validation_errors, _do_generation
+from app.services.tg_sender import download_photo, send_photos
 from app.handlers.random_photo import _do_random_generation
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ async def _handle_upload(message: Message, state: FSMContext):
         file_bytes = await bot.download_file(file.file_path)
         photo_data = file_bytes.read()
     except Exception as e:
-        logger.error(f"Ошибка скачивания фото из Telegram: {e}")
+        logger.error(f"Ошибка скачивания фото из Telegram: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось скачать фото. Попробуй ещё раз.")
         return
 
@@ -40,7 +41,7 @@ async def _handle_upload(message: Message, state: FSMContext):
             filename=f"{message.from_user.id}_{photo.file_id}.jpg",
         )
     except Exception as e:
-        logger.error(f"Ошибка загрузки фото на бэкенд: {e}")
+        logger.error(f"Ошибка загрузки фото на бэкенд: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось связаться с сервером. Попробуй позже.")
         return
 
@@ -57,7 +58,7 @@ async def _handle_upload(message: Message, state: FSMContext):
             photo_id=photo_id,
         )
     except Exception as e:
-        logger.error(f"Ошибка установки profile photo: {e}")
+        logger.error(f"Ошибка установки profile photo: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось сохранить фото профиля. Попробуй позже.")
         return
 
@@ -99,7 +100,7 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
     try:
         gen_result = await backend.generate_onboarding_photo(telegram_id=telegram_id)
     except Exception as e:
-        logger.error(f"Ошибка запуска онбординговой генерации: {e}")
+        logger.error(f"Ошибка запуска онбординговой генерации: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
         return
 
@@ -126,7 +127,7 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
     try:
         task_result = await backend.poll_task(task_id)
     except Exception as e:
-        logger.error(f"Ошибка поллинга задачи {task_id}: {e}")
+        logger.error(f"Ошибка поллинга задачи {task_id}: {e}", exc_info=True)
         await message.answer("⚠️ Ошибка при ожидании результата. Попробуй позже.")
         return
 
@@ -142,11 +143,25 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
 
         url = successful[0]["result_url"]
         logger.info(f"[tg={telegram_id}] onboarding: скачиваю фото, url={url[:120]}")
-        photo_data = await _download_photo(url)
+        try:
+            photo_data = await download_photo(url)
+        except Exception as e:
+            logger.error(f"[tg={telegram_id}] onboarding: download failed: {e}", exc_info=True)
+            await message.answer("Не удалось скачать фото. Попробуй позже.")
+            try:
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+            except Exception as re:
+                logger.error(f"[tg={telegram_id}] onboarding: refund failed: {re}", exc_info=True)
+            return
+
         logger.info(f"[tg={telegram_id}] onboarding: скачано {len(photo_data)} байт, отправляю в Telegram")
-        await message.answer_photo(
-            photo=BufferedInputFile(photo_data, filename="photo.jpg"),
-        )
+        send_result = await send_photos(message, [photo_data], telegram_id)
+
+        if send_result.failed > 0:
+            try:
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+            except Exception as re:
+                logger.error(f"[tg={telegram_id}] onboarding: refund failed: {re}", exc_info=True)
 
         await message.answer(
             "😍 Смотри, какая ты получилась!\n\n"
@@ -162,6 +177,12 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
         await message.answer(f"❌ Генерация не удалась: {error_msg}")
     else:
         await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
+        if task_id:
+            try:
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+                logger.info(f"[tg={telegram_id}] onboarding: refunded 1 generation for poll timeout")
+            except Exception as refund_err:
+                logger.error(f"[tg={telegram_id}] onboarding: timeout refund failed: {refund_err}", exc_info=True)
 
 
 @router.message(F.photo, PhotoUploadStates.waiting_for_main_photo)
