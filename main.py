@@ -4,6 +4,8 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from app import config
+from app.broker.connection import setup_broker, close_broker
+from app.broker.consumer import BotActionConsumer
 from app.handlers import get_all_routers
 from app.services.analytics_sdk import AnalyticsClient, AiogramAnalyticsMiddleware
 
@@ -28,11 +30,20 @@ async def main():
     for router in get_all_routers():
         dp.include_router(router)
 
+    # RabbitMQ consumer
+    broker_connection = None
+    if config.RABBITMQ_URL:
+        broker_connection, broker_channel = await setup_broker(config.RABBITMQ_URL)
+        consumer = BotActionConsumer(channel=broker_channel, bot=bot)
+        await consumer.start()
+
     # Запускаем бота
     try:
         await dp.start_polling(bot)
     finally:
         await analytics.stop()
+        if broker_connection:
+            await close_broker(broker_connection)
 
 
 if __name__ == "__main__":
