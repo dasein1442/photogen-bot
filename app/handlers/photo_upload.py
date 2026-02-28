@@ -5,6 +5,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
+from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-async def _handle_upload(message: Message, state: FSMContext):
+async def _handle_upload(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Загрузка фото, установка как profile photo, авто-генерация если пришли из flow."""
     await message.answer("🔄 Проверяю фотографию...")
 
@@ -67,17 +68,29 @@ async def _handle_upload(message: Message, state: FSMContext):
     photosession_id = data.get("photosession_id")
     random_mode = data.get("random_mode", False)
     onboarding_mode = data.get("onboarding_mode", False)
+
+    if onboarding_mode:
+        upload_source = "onboarding"
+    elif random_mode:
+        upload_source = "random"
+    elif photosession_id:
+        upload_source = "photosession"
+    else:
+        upload_source = "profile"
+
+    await analytics.track("photo_upload_started", user_id=str(message.from_user.id), properties={"source": upload_source})
+
     await state.clear()
 
     if onboarding_mode:
         # Пришли из онбординга — запускаем генерацию по онбординговому пресету
-        await _do_onboarding_generation(message)
+        await _do_onboarding_generation(message, analytics=analytics)
     elif random_mode:
         # Пришли из flow случайной генерации
-        await _do_random_generation(message)
+        await _do_random_generation(message, analytics=analytics)
     elif photosession_id:
         # Пришли из flow генерации — запускаем генерацию автоматически
-        await _do_generation(message, photosession_id)
+        await _do_generation(message, photosession_id, analytics=analytics)
     else:
         # Пришли из профиля — просто сообщаем об успехе
         await message.answer(
@@ -90,7 +103,7 @@ async def _handle_upload(message: Message, state: FSMContext):
         )
 
 
-async def _do_onboarding_generation(message: Message, telegram_id: int | None = None):
+async def _do_onboarding_generation(message: Message, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
     """Онбординговая генерация по фиксированному пресету → поллинг → отправка результата."""
     if telegram_id is None:
         telegram_id = message.from_user.id
@@ -157,6 +170,9 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
         logger.info(f"[tg={telegram_id}] onboarding: скачано {len(photo_data)} байт, отправляю в Telegram")
         send_result = await send_photos(message, [photo_data], telegram_id)
 
+        if analytics:
+            await analytics.track("onboarding_result_delivered", user_id=str(telegram_id), properties={"task_id": task_id})
+
         if send_result.failed > 0:
             try:
                 await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
@@ -186,8 +202,8 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
 
 
 @router.message(F.photo, PhotoUploadStates.waiting_for_main_photo)
-async def handle_main_photo_upload(message: Message, state: FSMContext):
-    await _handle_upload(message, state)
+async def handle_main_photo_upload(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    await _handle_upload(message, state, analytics)
 
 
 @router.callback_query(lambda callback: callback.data == "upload_profile_photo")

@@ -5,6 +5,7 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
+from app.services.analytics_sdk import AnalyticsClient
 from app.services.tg_sender import download_photo, send_photos
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
@@ -15,7 +16,7 @@ router = Router()
 
 
 @router.message(F.text == "Случайное фото")
-async def handle_random_photo(message: Message, state: FSMContext):
+async def handle_random_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Обработка кнопки 'Случайное фото'."""
     try:
         user_data = await backend.get_user(telegram_id=message.from_user.id)
@@ -45,10 +46,10 @@ async def handle_random_photo(message: Message, state: FSMContext):
         )
         return
 
-    await _do_random_generation(message)
+    await _do_random_generation(message, analytics=analytics)
 
 
-async def _do_random_generation(message: Message, telegram_id: int | None = None):
+async def _do_random_generation(message: Message, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
     """Запуск случайной генерации → поллинг → отправка результата."""
     if telegram_id is None:
         telegram_id = message.from_user.id
@@ -63,6 +64,8 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
         return
 
     if gen_result.get("error") == "no_balance":
+        if analytics:
+            await analytics.track("paywall_shown", user_id=str(telegram_id), properties={"source": "no_balance_random"})
         await message.answer(
             "❌ У тебя закончились генерации!\n\n"
             "Пополни баланс, чтобы продолжить создавать фото.",
@@ -114,6 +117,9 @@ async def _do_random_generation(message: Message, telegram_id: int | None = None
 
         logger.info(f"[tg={telegram_id}] random: скачано {len(photo_data)} байт, отправляю в Telegram")
         send_result = await send_photos(message, [photo_data], telegram_id)
+
+        if analytics:
+            await analytics.track("random_generation_delivered", user_id=str(telegram_id), properties={"task_id": task_id, "success": send_result.failed == 0})
 
         if send_result.failed > 0:
             try:

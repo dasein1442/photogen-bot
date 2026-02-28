@@ -9,6 +9,7 @@ from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 from app.api.backend import backend
 from app.handlers.payment import start_payment_flow
 from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard
+from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 
 logger = logging.getLogger(__name__)
@@ -31,13 +32,14 @@ WELCOME_EXAMPLE_IMAGE_PATHS = (
 
 
 @router.message(CommandStart(deep_link="upload_photo"))
-async def handle_start_upload_photo(message: Message, state: FSMContext):
+async def handle_start_upload_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Deep link from onboarding reminder push — go straight to photo upload."""
     user = message.from_user
 
     # Регистрация (idempotent)
+    result = {}
     try:
-        await backend.register_user(
+        result = await backend.register_user(
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name,
@@ -45,6 +47,8 @@ async def handle_start_upload_photo(message: Message, state: FSMContext):
         )
     except Exception as e:
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
+
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "upload_photo", "is_new_user": result.get("created", True)})
 
     try_now_text = (
         "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
@@ -66,13 +70,14 @@ async def handle_start_upload_photo(message: Message, state: FSMContext):
 
 
 @router.message(CommandStart(deep_link="buy"))
-async def handle_start_buy(message: Message):
+async def handle_start_buy(message: Message, analytics: AnalyticsClient):
     """Deep link from payment reminder push — go straight to Stars invoice."""
     user = message.from_user
 
     # Регистрация (idempotent)
+    result = {}
     try:
-        await backend.register_user(
+        result = await backend.register_user(
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name,
@@ -81,14 +86,17 @@ async def handle_start_buy(message: Message):
     except Exception as e:
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
 
-    await start_payment_flow(message, user.id)
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "buy", "is_new_user": result.get("created", True)})
+
+    await start_payment_flow(message, user.id, analytics=analytics)
 
 
 @router.message(CommandStart())
-async def handle_start(message: Message):
+async def handle_start(message: Message, analytics: AnalyticsClient):
     user = message.from_user
 
     # Регистрация пользователя на бэкенде
+    reg_data = {}
     try:
         reg_data = await backend.register_user(
             telegram_id=user.id,
@@ -100,6 +108,8 @@ async def handle_start(message: Message):
     except Exception as e:
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
         generations = "?"
+
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "none", "is_new_user": reg_data.get("created", True)})
 
     welcome_text = (
         "Привет 👋\n"
@@ -133,7 +143,8 @@ async def handle_start(message: Message):
 
 
 @router.callback_query(lambda callback: callback.data == "more_examples")
-async def handle_more_examples(callback: CallbackQuery):
+async def handle_more_examples(callback: CallbackQuery, analytics: AnalyticsClient):
+    await analytics.track("examples_viewed", user_id=str(callback.from_user.id))
     await callback.message.delete()
 
     existing_example_images = [path for path in WELCOME_EXAMPLE_IMAGE_PATHS if path.exists()]
@@ -157,7 +168,8 @@ async def handle_more_examples(callback: CallbackQuery):
 
 
 @router.callback_query(lambda callback: callback.data == "try_now")
-async def handle_try_now(callback: CallbackQuery, state: FSMContext):
+async def handle_try_now(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
+    await analytics.track("onboarding_try_now_clicked", user_id=str(callback.from_user.id))
     try_now_text = (
         "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
         "Отправь 1 фото — я сделаю тебе тестовый снимок за несколько секунд 🤖✨\n\n"
