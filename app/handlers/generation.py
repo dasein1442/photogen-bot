@@ -7,6 +7,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
+from app.services.analytics_sdk import AnalyticsClient
 from app.services.tg_sender import download_photo, send_photos, SendResult
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
@@ -29,9 +30,10 @@ def _format_validation_errors(errors: list[str]) -> str:
 
 
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("photosession_"))
-async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext):
+async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
     """Пользователь выбрал фотосессию."""
     photosession_id = int(callback.data.split("_")[1])
+    await analytics.track("photosession_selected", user_id=str(callback.from_user.id), properties={"photosession_id": photosession_id})
 
     # Проверяем, установлено ли фото профиля
     try:
@@ -47,7 +49,7 @@ async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext)
     if profile_photo_id:
         # Фото профиля есть — сразу генерируем
         await callback.answer()
-        await _do_generation(callback.message, photosession_id, callback.from_user.id)
+        await _do_generation(callback.message, photosession_id, callback.from_user.id, analytics=analytics)
     else:
         # Фото профиля нет — просим загрузить
         await state.update_data(photosession_id=photosession_id)
@@ -69,7 +71,7 @@ async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext)
         await callback.answer()
 
 
-async def _do_generation(message: Message, photosession_id: int, telegram_id: int | None = None):
+async def _do_generation(message: Message, photosession_id: int, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
     """Запуск генерации → поллинг → отправка результатов."""
     t_total = time.monotonic()
     if telegram_id is None:
@@ -96,6 +98,8 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
     logger.info(f"[tg={telegram_id}] Backend /generate responded in {api_time:.2f}s")
 
     if gen_result.get("error") == "no_balance":
+        if analytics:
+            await analytics.track("paywall_shown", user_id=str(telegram_id), properties={"source": "no_balance_photosession"})
         await message.answer(
             "❌ У тебя закончились генерации!\n\n"
             "Пополни баланс, чтобы продолжить создавать фото.",
@@ -197,6 +201,9 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
 
         tg_send_time = time.monotonic() - t0
         logger.info(f"[tg={telegram_id}] Telegram send took {tg_send_time:.2f}s")
+
+        if analytics:
+            await analytics.track("generation_delivered", user_id=str(telegram_id), properties={"task_id": task_id, "total": send_result.total, "sent": send_result.sent, "failed": send_result.failed})
 
         total_time = time.monotonic() - t_total
         logger.info(

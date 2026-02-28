@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.keyboards.common import get_profile_keyboard
+from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ async def handle_balance_command(message: Message):
 
 
 @router.message(F.text == "Профиль")
-async def handle_profile(message: Message):
+async def handle_profile(message: Message, analytics: AnalyticsClient):
     try:
         user_data = await backend.get_user(telegram_id=message.from_user.id)
         generations = user_data.get("generations_remaining", 0)
@@ -36,6 +37,9 @@ async def handle_profile(message: Message):
         logger.error(f"Ошибка получения данных профиля: {e}")
         generations = "?"
         profile_photo_id = None
+        user_data = {}
+
+    await analytics.track("profile_viewed", user_id=str(message.from_user.id), properties={"generations_remaining": user_data.get("generations_remaining", 0)})
 
     photo_status = "✅ Установлено" if profile_photo_id else "❌ Не установлено"
 
@@ -78,6 +82,7 @@ async def handle_set_new_photo(message: Message, state: FSMContext):
 
 
 @router.message(F.text == "Приобрести генерации")
-async def handle_buy_generations(message: Message):
+async def handle_buy_generations(message: Message, analytics: AnalyticsClient):
     from app.handlers.payment import start_payment_flow
-    await start_payment_flow(message, message.from_user.id)
+    await analytics.track("paywall_shown", user_id=str(message.from_user.id), properties={"source": "profile_buy"})
+    await start_payment_flow(message, message.from_user.id, analytics=analytics)

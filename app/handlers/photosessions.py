@@ -4,13 +4,14 @@ from aiogram import F, Router
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.api.backend import backend
+from app.services.analytics_sdk import AnalyticsClient
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 
 @router.message(F.text == "Фотосессии")
-async def handle_photosessions(message: Message):
+async def handle_photosessions(message: Message, analytics: AnalyticsClient):
     """Загружает фотосессии с бэкенда и показывает как inline-кнопки."""
     try:
         photosessions = await backend.get_photosessions()
@@ -18,6 +19,8 @@ async def handle_photosessions(message: Message):
         logger.error(f"Ошибка загрузки фотосессий: {e}")
         await message.answer("⚠️ Не удалось загрузить фотосессии. Попробуй позже.")
         return
+
+    await analytics.track("photosessions_viewed", user_id=str(message.from_user.id), properties={"count": len(photosessions)})
 
     if not photosessions:
         await message.answer("Пока нет доступных фотосессий. Заходи позже!")

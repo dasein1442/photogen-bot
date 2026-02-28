@@ -5,12 +5,13 @@ from aiogram.types import CallbackQuery, Message, PreCheckoutQuery, LabeledPrice
 
 from app.api.backend import backend
 from app.keyboards.common import get_main_menu_keyboard
+from app.services.analytics_sdk import AnalyticsClient
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 
-async def start_payment_flow(message: Message, telegram_id: int):
+async def start_payment_flow(message: Message, telegram_id: int, analytics: AnalyticsClient | None = None):
     """Start the payment flow: notify backend, get price, send Stars invoice."""
     # Notify backend about payment flow start (fires push events, sets discount timer)
     try:
@@ -38,12 +39,15 @@ async def start_payment_flow(message: Message, telegram_id: int):
         prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
     )
 
+    if analytics:
+        await analytics.track("invoice_sent", user_id=str(telegram_id), properties={"stars": stars, "generations": generations})
+
 
 @router.callback_query(lambda cb: cb.data == "buy_generations")
-async def handle_buy_generations(callback: CallbackQuery):
+async def handle_buy_generations(callback: CallbackQuery, analytics: AnalyticsClient):
     """User clicked buy button (from no_balance, profile, etc.)."""
     await callback.answer()
-    await start_payment_flow(callback.message, callback.from_user.id)
+    await start_payment_flow(callback.message, callback.from_user.id, analytics=analytics)
 
 
 @router.pre_checkout_query()
@@ -53,7 +57,7 @@ async def handle_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 
 @router.message(F.successful_payment)
-async def handle_successful_payment(message: Message):
+async def handle_successful_payment(message: Message, analytics: AnalyticsClient):
     """Handle successful Stars payment — add credits via backend."""
     payment = message.successful_payment
     telegram_id = message.from_user.id
@@ -81,6 +85,8 @@ async def handle_successful_payment(message: Message):
             "Обратись в поддержку: @fotushkasupport"
         )
         return
+
+    await analytics.track("payment_completed", user_id=str(message.from_user.id), properties={"stars_paid": message.successful_payment.total_amount, "generations": generations, "telegram_payment_charge_id": message.successful_payment.telegram_payment_charge_id})
 
     await message.answer(
         f"✅ Спасибо за покупку!\n\n"

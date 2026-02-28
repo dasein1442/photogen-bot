@@ -26,6 +26,8 @@ async def main():
     dp.message.middleware(middleware)
     dp.callback_query.middleware(middleware)
 
+    dp["analytics"] = analytics
+
     # Подключаем обработчики
     for router in get_all_routers():
         dp.include_router(router)
@@ -34,7 +36,7 @@ async def main():
     broker_connection = None
     if config.RABBITMQ_URL:
         broker_connection, broker_channel = await setup_broker(config.RABBITMQ_URL)
-        consumer = BotActionConsumer(channel=broker_channel, bot=bot)
+        consumer = BotActionConsumer(channel=broker_channel, bot=bot, analytics=analytics)
         await consumer.start()
 
     # Запускаем бота

@@ -6,14 +6,16 @@ from aiogram.types import LabeledPrice
 from aio_pika.abc import AbstractChannel, AbstractIncomingMessage
 
 from app.api.backend import backend
+from app.services.analytics_sdk import AnalyticsClient
 
 logger = logging.getLogger(__name__)
 
 
 class BotActionConsumer:
-    def __init__(self, channel: AbstractChannel, bot: Bot) -> None:
+    def __init__(self, channel: AbstractChannel, bot: Bot, analytics: AnalyticsClient | None = None) -> None:
         self._channel = channel
         self._bot = bot
+        self._analytics = analytics
 
     async def start(self) -> None:
         await self._channel.set_qos(prefetch_count=5)
@@ -61,5 +63,7 @@ class BotActionConsumer:
                 prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
             )
             logger.info("Invoice sent for delivery %s, chat_id %s (%d XTR)", delivery_id, chat_id, stars)
+            if self._analytics:
+                await self._analytics.track("push_invoice_sent", user_id=str(data["chat_id"]), properties={"delivery_id": data.get("delivery_id"), "stars": stars})
         except Exception as e:
             logger.error("Failed to send invoice for delivery %s: %s", delivery_id, e)
