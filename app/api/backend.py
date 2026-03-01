@@ -184,12 +184,12 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def get_price(self, telegram_id: int) -> dict:
-        """GET /payments/price — текущая цена для пользователя."""
+    async def get_price(self, telegram_id: int, context: str = "menu") -> dict:
+        """GET /payments/price — pricing tiers for user."""
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{self.base_url}/payments/price",
-                params={"telegram_id": telegram_id},
+                params={"telegram_id": telegram_id, "context": context},
                 headers=self._headers(),
             ) as resp:
                 resp.raise_for_status()
@@ -215,6 +215,16 @@ class BackendClient:
             payload = {"telegram_id": telegram_id}
             async with session.post(
                 f"{self.base_url}/payments/flow-started", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def notify_onboarding_paywall(self, telegram_id: int) -> dict:
+        """POST /payments/onboarding-paywall-shown — notify backend about post-onboarding paywall."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id}
+            async with session.post(
+                f"{self.base_url}/payments/onboarding-paywall-shown", json=payload, headers=self._headers()
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()
