@@ -4,3 +4,8 @@ services:
     restart: always
     env_file: .env
     network_mode: host
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
