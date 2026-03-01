@@ -32,7 +32,7 @@ WELCOME_EXAMPLE_IMAGE_PATHS = (
 
 
 async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FSMContext):
-    """Show paywall for user who completed onboarding but hasn't purchased."""
+    """Show paywall for user who completed onboarding but hasn't purchased. Shows price + invoice."""
     try:
         price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
         tier = price_data["tiers"][0]
@@ -43,7 +43,8 @@ async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FS
         generations = 20
 
     await message.answer(
-        "Чтобы продолжить, оплати генерации 👇"
+        f"Открой доступ к 70+ стилям — {generations} генераций всего за {stars} ⭐️\n\n"
+        "Деловая съёмка, пляж, Pinterest, Vogue и многое другое 👇"
     )
 
     await message.bot.send_invoice(

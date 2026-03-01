@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, LabeledPrice
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -103,26 +103,11 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
         )
 
 
-async def _send_onboarding_paywall_invoice(message: Message, telegram_id: int):
-    """Send the post-onboarding paywall invoice for 20 generations."""
-    try:
-        price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
-        tier = price_data["tiers"][0]
-        stars = tier["stars"]
-        generations = tier["generations"]
-    except Exception as e:
-        logger.error(f"Ошибка получения цены для онбординг-пейволла: {e}")
-        stars = 299
-        generations = 20
-
-    await message.bot.send_invoice(
-        chat_id=message.chat.id,
-        title=f"{generations} генераций",
-        description=f"Покупка {generations} генераций для создания AI-фото",
-        payload=f"buy_{generations}_{telegram_id}",
-        currency="XTR",
-        prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
-    )
+def _get_onboarding_buy_keyboard() -> InlineKeyboardMarkup:
+    """Inline keyboard with deep link to buy."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Купить генерации ⭐️", url="https://t.me/janephotobot?start=buy")],
+    ])
 
 
 async def _do_onboarding_generation(message: Message, state: FSMContext | None = None, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
@@ -201,7 +186,7 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
             except Exception as re:
                 logger.error(f"[tg={telegram_id}] onboarding: refund failed: {re}", exc_info=True)
 
-        # Show paywall text
+        # Show paywall text with buy button (deep link)
         await message.answer(
             "😍 Смотри, какая ты получилась!\n\n"
             "Это только проба — дальше можешь создавать реалистичные фото в любых образах:\n\n"
@@ -209,10 +194,8 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
             "🏖 фотосессия на пляже\n"
             "📸 стиль Pinterest или журнал Vogue\n\n"
             "Выбирай стиль и создавай фото 👇",
+            reply_markup=_get_onboarding_buy_keyboard(),
         )
-
-        # Send invoice immediately
-        await _send_onboarding_paywall_invoice(message, telegram_id)
 
         # Notify backend (fires push notifications for nudging)
         try:

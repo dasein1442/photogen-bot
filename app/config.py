@@ -19,10 +19,6 @@ ANALYTICS_API_KEY: str = os.getenv("ANALYTICS_API_KEY", "579f0cf8-b7c8-4665-b1c3
 ANALYTICS_ENABLED: bool = os.getenv("ANALYTICS_ENABLED", "true").lower() == "true"
 
 
-# RabbitMQ
-RABBITMQ_URL: str = os.getenv("RABBITMQ_URL", "")
-
-
 def validate():
     """Проверяет что все обязательные настройки заполнены."""
     if not BOT_TOKEN:
