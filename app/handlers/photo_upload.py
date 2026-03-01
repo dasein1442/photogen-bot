@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, LabeledPrice
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -84,7 +84,7 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
 
     if onboarding_mode:
         # Пришли из онбординга — запускаем генерацию по онбординговому пресету
-        await _do_onboarding_generation(message, analytics=analytics)
+        await _do_onboarding_generation(message, state=state, analytics=analytics)
     elif random_mode:
         # Пришли из flow случайной генерации
         await _do_random_generation(message, analytics=analytics)
@@ -103,8 +103,30 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
         )
 
 
-async def _do_onboarding_generation(message: Message, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
-    """Онбординговая генерация по фиксированному пресету → поллинг → отправка результата."""
+async def _send_onboarding_paywall_invoice(message: Message, telegram_id: int):
+    """Send the post-onboarding paywall invoice for 20 generations."""
+    try:
+        price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
+        tier = price_data["tiers"][0]
+        stars = tier["stars"]
+        generations = tier["generations"]
+    except Exception as e:
+        logger.error(f"Ошибка получения цены для онбординг-пейволла: {e}")
+        stars = 299
+        generations = 20
+
+    await message.bot.send_invoice(
+        chat_id=message.chat.id,
+        title=f"{generations} генераций",
+        description=f"Покупка {generations} генераций для создания AI-фото",
+        payload=f"buy_{generations}_{telegram_id}",
+        currency="XTR",
+        prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
+    )
+
+
+async def _do_onboarding_generation(message: Message, state: FSMContext | None = None, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
+    """Онбординговая генерация по фиксированному пресету → поллинг → отправка результата → пейволл."""
     if telegram_id is None:
         telegram_id = message.from_user.id
 
@@ -179,15 +201,29 @@ async def _do_onboarding_generation(message: Message, telegram_id: int | None = 
             except Exception as re:
                 logger.error(f"[tg={telegram_id}] onboarding: refund failed: {re}", exc_info=True)
 
+        # Show paywall text
         await message.answer(
             "😍 Смотри, какая ты получилась!\n\n"
-            "Это только проба — дальше можешь создавать реалистичные фото в любых образах:\n"
+            "Это только проба — дальше можешь создавать реалистичные фото в любых образах:\n\n"
             "👔 деловая съёмка\n"
             "🏖 фотосессия на пляже\n"
             "📸 стиль Pinterest или журнал Vogue\n\n"
             "Выбирай стиль и создавай фото 👇",
-            reply_markup=get_main_menu_keyboard(),
         )
+
+        # Send invoice immediately
+        await _send_onboarding_paywall_invoice(message, telegram_id)
+
+        # Notify backend (fires push notifications for nudging)
+        try:
+            await backend.notify_onboarding_paywall(telegram_id)
+        except Exception as e:
+            logger.error(f"Ошибка уведомления об онбординг-пейволле: {e}")
+
+        # Set FSM state to block menu until purchase
+        if state:
+            await state.set_state(PhotoUploadStates.onboarding_paywall)
+
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
         await message.answer(f"❌ Генерация не удалась: {error_msg}")

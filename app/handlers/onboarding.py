@@ -4,7 +4,7 @@ from pathlib import Path
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, LabeledPrice
 
 from app.api.backend import backend
 from app.handlers.payment import start_payment_flow
@@ -31,6 +31,33 @@ WELCOME_EXAMPLE_IMAGE_PATHS = (
 )
 
 
+async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FSMContext):
+    """Show paywall for user who completed onboarding but hasn't purchased."""
+    try:
+        price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
+        tier = price_data["tiers"][0]
+        stars = tier["stars"]
+        generations = tier["generations"]
+    except Exception:
+        stars = 299
+        generations = 20
+
+    await message.answer(
+        "Чтобы продолжить, оплати генерации 👇"
+    )
+
+    await message.bot.send_invoice(
+        chat_id=message.chat.id,
+        title=f"{generations} генераций",
+        description=f"Покупка {generations} генераций для создания AI-фото",
+        payload=f"buy_{generations}_{telegram_id}",
+        currency="XTR",
+        prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
+    )
+
+    await state.set_state(PhotoUploadStates.onboarding_paywall)
+
+
 @router.message(CommandStart(deep_link="upload_photo"))
 async def handle_start_upload_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Deep link from onboarding reminder push — go straight to photo upload."""
@@ -49,6 +76,16 @@ async def handle_start_upload_photo(message: Message, state: FSMContext, analyti
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
 
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "upload_photo", "is_new_user": result.get("created", True)})
+
+    # Check if user completed onboarding but hasn't purchased — show paywall
+    try:
+        user_data = await backend.get_user(telegram_id=user.id)
+        user_info = user_data.get("user", {})
+        if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
+            await _send_onboarding_paywall(message, user.id, state)
+            return
+    except Exception:
+        pass
 
     try_now_text = (
         "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
@@ -70,7 +107,7 @@ async def handle_start_upload_photo(message: Message, state: FSMContext, analyti
 
 
 @router.message(CommandStart(deep_link="buy"))
-async def handle_start_buy(message: Message, analytics: AnalyticsClient):
+async def handle_start_buy(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Deep link from payment reminder push — go straight to Stars invoice."""
     user = message.from_user
 
@@ -88,11 +125,21 @@ async def handle_start_buy(message: Message, analytics: AnalyticsClient):
 
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "buy", "is_new_user": result.get("created", True)})
 
+    # Check if user is in post-onboarding paywall scenario
+    try:
+        user_data = await backend.get_user(telegram_id=user.id)
+        user_info = user_data.get("user", {})
+        if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
+            await _send_onboarding_paywall(message, user.id, state)
+            return
+    except Exception:
+        pass
+
     await start_payment_flow(message, user.id, analytics=analytics)
 
 
 @router.message(CommandStart())
-async def handle_start(message: Message, analytics: AnalyticsClient):
+async def handle_start(message: Message, state: FSMContext, analytics: AnalyticsClient):
     user = message.from_user
 
     # Регистрация пользователя на бэкенде
@@ -110,6 +157,16 @@ async def handle_start(message: Message, analytics: AnalyticsClient):
         generations = "?"
 
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "none", "is_new_user": reg_data.get("created", True)})
+
+    # Check if user completed onboarding but hasn't purchased — show paywall
+    try:
+        user_data = await backend.get_user(telegram_id=user.id)
+        user_info = user_data.get("user", {})
+        if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
+            await _send_onboarding_paywall(message, user.id, state)
+            return
+    except Exception:
+        pass
 
     welcome_text = (
         "Привет 👋\n"

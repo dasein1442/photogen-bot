@@ -8,6 +8,7 @@ from app.broker.connection import setup_broker, close_broker
 from app.broker.consumer import BotActionConsumer
 from app.handlers import get_all_routers
 from app.services.analytics_sdk import AnalyticsClient, AiogramAnalyticsMiddleware
+from app.middlewares.paywall_guard import PaywallGuardMiddleware
 
 
 async def main():
@@ -25,6 +26,11 @@ async def main():
     middleware = AiogramAnalyticsMiddleware(analytics)
     dp.message.middleware(middleware)
     dp.callback_query.middleware(middleware)
+
+    # Paywall guard — blocks actions while in onboarding_paywall state
+    paywall_guard = PaywallGuardMiddleware()
+    dp.message.middleware(paywall_guard)
+    dp.callback_query.middleware(paywall_guard)
 
     dp["analytics"] = analytics
 
