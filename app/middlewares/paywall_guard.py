@@ -3,7 +3,7 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, Update, LabeledPrice
+from aiogram.types import Message, CallbackQuery, LabeledPrice
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -33,13 +33,16 @@ class PaywallGuardMiddleware(BaseMiddleware):
         if isinstance(event, Message):
             if event.successful_payment:
                 return await handler(event, data)
+            # Allow /start commands through (they have their own guard)
+            if event.text and event.text.startswith("/start"):
+                return await handler(event, data)
 
-        # Allow buy_generations callback (in case it's triggered)
+        # Allow buy_generations callback
         if isinstance(event, CallbackQuery):
             if event.data in ("buy_generations",):
                 return await handler(event, data)
 
-        # Block everything else — remind user to pay
+        # Block everything else — show price + invoice
         telegram_id = event.from_user.id
 
         try:
@@ -58,7 +61,8 @@ class PaywallGuardMiddleware(BaseMiddleware):
             await event.answer()
 
         await target.answer(
-            "Чтобы продолжить, оплати генерации 👇"
+            f"Открой доступ к 70+ стилям — {generations} генераций всего за {stars} ⭐️\n\n"
+            "Деловая съёмка, пляж, Pinterest, Vogue и многое другое 👇"
         )
 
         await target.bot.send_invoice(
