@@ -159,6 +159,9 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
 
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "none", "is_new_user": reg_data.get("created", True)})
 
+    # Clear any stale FSM state (e.g. onboarding_paywall) so buttons work
+    await state.clear()
+
     # Check if user completed onboarding but hasn't purchased — show paywall
     try:
         user_data = await backend.get_user(telegram_id=user.id)
