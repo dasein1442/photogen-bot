@@ -44,6 +44,7 @@ class PaywallGuardMiddleware(BaseMiddleware):
                 or event.data.startswith("pm_stars_")
                 or event.data.startswith("pm_sbp_")
                 or event.data.startswith("buy_tier_")
+                or event.data.startswith("sbp_tier_")
             ):
                 return await handler(event, data)
 

@@ -130,9 +130,43 @@ async def handle_pay_method_stars(callback: CallbackQuery, analytics: AnalyticsC
 
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("pm_sbp_"))
 async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsClient):
-    """User chose SBP payment method — coming soon."""
+    """User chose SBP — show tier selection (same tiers)."""
     await callback.answer()
-    await callback.message.answer("🔜 Оплата через СБП скоро будет доступна!")
+    context = callback.data.replace("pm_sbp_", "")
+    telegram_id = callback.from_user.id
+
+    price_context = "onboarding_paywall" if context == "onboarding" else "menu"
+    try:
+        price_data = await backend.get_price(telegram_id, context=price_context)
+    except Exception as e:
+        logger.error(f"Ошибка получения цены для СБП: {e}")
+        await callback.message.answer("⚠️ Не удалось получить тарифы. Попробуй позже.")
+        return
+
+    tiers = price_data.get("tiers", [])
+    if not tiers:
+        await callback.message.answer("⚠️ Не удалось получить тарифы. Попробуй позже.")
+        return
+
+    buttons = []
+    for t in tiers:
+        gen = t["generations"]
+        rubles = t.get("rubles", 0)
+        if not rubles:
+            continue
+        buttons.append([InlineKeyboardButton(
+            text=f"{gen} генераций — {rubles} ₽",
+            callback_data=f"sbp_tier_{gen}",
+        )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.answer("Выбери пакет генераций 👇", reply_markup=keyboard)
+
+
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("sbp_tier_"))
+async def handle_sbp_tier(callback: CallbackQuery):
+    """User selected an SBP tier — not available yet."""
+    await callback.answer("СБП пока недоступно", show_alert=True)
 
 
 @router.pre_checkout_query()
