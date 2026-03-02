@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.keyboards.common import get_main_menu_keyboard
+from app.keyboards.payment import get_payment_method_keyboard
 from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 
@@ -85,9 +86,53 @@ async def handle_buy_tier(callback: CallbackQuery, analytics: AnalyticsClient):
 
 @router.callback_query(lambda cb: cb.data == "buy_generations")
 async def handle_buy_generations(callback: CallbackQuery, analytics: AnalyticsClient):
-    """User clicked buy button (from no_balance, profile, etc.)."""
+    """User clicked buy button — show payment method selection."""
     await callback.answer()
-    await start_payment_flow(callback.message, callback.from_user.id, analytics=analytics)
+    await callback.message.answer(
+        "Выбери способ оплаты 👇",
+        reply_markup=get_payment_method_keyboard("menu"),
+    )
+
+
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("pm_stars_"))
+async def handle_pay_method_stars(callback: CallbackQuery, analytics: AnalyticsClient):
+    """User chose Stars payment method."""
+    await callback.answer()
+    context = callback.data.replace("pm_stars_", "")
+
+    if context == "onboarding":
+        # Onboarding paywall — send single-tier invoice with discount
+        telegram_id = callback.from_user.id
+        try:
+            price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
+            tier = price_data["tiers"][0]
+            stars = tier["stars"]
+            generations = tier["generations"]
+        except Exception:
+            stars = 299
+            generations = 20
+
+        await callback.message.bot.send_invoice(
+            chat_id=callback.message.chat.id,
+            title=f"{generations} генераций",
+            description=f"Покупка {generations} генераций для создания AI-фото",
+            payload=f"buy_{generations}_{telegram_id}",
+            currency="XTR",
+            prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
+        )
+
+        if analytics:
+            await analytics.track("invoice_sent", user_id=str(telegram_id), properties={"stars": stars, "generations": generations, "source": "onboarding_stars"})
+    else:
+        # Menu flow — show tier selection
+        await start_payment_flow(callback.message, callback.from_user.id, analytics=analytics)
+
+
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("pm_sbp_"))
+async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsClient):
+    """User chose SBP payment method — coming soon."""
+    await callback.answer()
+    await callback.message.answer("🔜 Оплата через СБП скоро будет доступна!")
 
 
 @router.pre_checkout_query()

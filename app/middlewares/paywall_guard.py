@@ -3,10 +3,10 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, LabeledPrice
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
-from app.api.backend import backend
+from app.keyboards.payment import get_payment_method_keyboard
 from app.states.photo import PhotoUploadStates
 
 logger = logging.getLogger(__name__)
@@ -37,23 +37,17 @@ class PaywallGuardMiddleware(BaseMiddleware):
             if event.text and event.text.startswith("/start"):
                 return await handler(event, data)
 
-        # Allow buy_generations callback
+        # Allow payment-related callbacks through
         if isinstance(event, CallbackQuery):
-            if event.data in ("buy_generations",):
+            if event.data and (
+                event.data == "buy_generations"
+                or event.data.startswith("pm_stars_")
+                or event.data.startswith("pm_sbp_")
+                or event.data.startswith("buy_tier_")
+            ):
                 return await handler(event, data)
 
-        # Block everything else — show price + invoice
-        telegram_id = event.from_user.id
-
-        try:
-            price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
-            tier = price_data["tiers"][0]
-            stars = tier["stars"]
-            generations = tier["generations"]
-        except Exception:
-            stars = 299
-            generations = 20
-
+        # Block everything else — show payment method selection
         if isinstance(event, Message):
             target = event
         else:
@@ -61,17 +55,10 @@ class PaywallGuardMiddleware(BaseMiddleware):
             await event.answer()
 
         await target.answer(
-            f"Открой доступ к 70+ стилям — {generations} генераций всего за {stars} ⭐️\n\n"
-            "Деловая съёмка, пляж, Pinterest, Vogue и многое другое 👇"
-        )
-
-        await target.bot.send_invoice(
-            chat_id=target.chat.id,
-            title=f"{generations} генераций",
-            description=f"Покупка {generations} генераций для создания AI-фото",
-            payload=f"buy_{generations}_{telegram_id}",
-            currency="XTR",
-            prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
+            "Открой доступ к 70+ стилям!\n\n"
+            "Деловая съёмка, пляж, Pinterest, Vogue и многое другое.\n\n"
+            "Выбери способ оплаты 👇",
+            reply_markup=get_payment_method_keyboard("onboarding"),
         )
 
         return  # do NOT call the handler

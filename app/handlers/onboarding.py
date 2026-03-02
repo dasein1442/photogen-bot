@@ -4,11 +4,11 @@ from pathlib import Path
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, LabeledPrice
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 
 from app.api.backend import backend
-from app.handlers.payment import start_payment_flow
 from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard
+from app.keyboards.payment import get_payment_method_keyboard
 from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 
@@ -32,28 +32,12 @@ WELCOME_EXAMPLE_IMAGE_PATHS = (
 
 
 async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FSMContext):
-    """Show paywall for user who completed onboarding but hasn't purchased. Shows price + invoice."""
-    try:
-        price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
-        tier = price_data["tiers"][0]
-        stars = tier["stars"]
-        generations = tier["generations"]
-    except Exception:
-        stars = 299
-        generations = 20
-
+    """Show paywall for user who completed onboarding but hasn't purchased. Shows payment method selection."""
     await message.answer(
-        f"Открой доступ к 70+ стилям — {generations} генераций всего за {stars} ⭐️\n\n"
-        "Деловая съёмка, пляж, Pinterest, Vogue и многое другое 👇"
-    )
-
-    await message.bot.send_invoice(
-        chat_id=message.chat.id,
-        title=f"{generations} генераций",
-        description=f"Покупка {generations} генераций для создания AI-фото",
-        payload=f"buy_{generations}_{telegram_id}",
-        currency="XTR",
-        prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
+        "Открой доступ к 70+ стилям!\n\n"
+        "Деловая съёмка, пляж, Pinterest, Vogue и многое другое.\n\n"
+        "Выбери способ оплаты 👇",
+        reply_markup=get_payment_method_keyboard("onboarding"),
     )
 
     await state.set_state(PhotoUploadStates.onboarding_paywall)
@@ -136,7 +120,10 @@ async def handle_start_buy(message: Message, state: FSMContext, analytics: Analy
     except Exception:
         pass
 
-    await start_payment_flow(message, user.id, analytics=analytics)
+    await message.answer(
+        "Выбери способ оплаты 👇",
+        reply_markup=get_payment_method_keyboard("menu"),
+    )
 
 
 @router.message(CommandStart())

@@ -103,10 +103,11 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
         )
 
 
-def _get_onboarding_buy_keyboard(bot_username: str) -> InlineKeyboardMarkup:
-    """Inline keyboard with deep link to buy."""
+def _get_onboarding_buy_keyboard() -> InlineKeyboardMarkup:
+    """Inline keyboard with payment method selection for onboarding paywall."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Купить генерации ⭐️", url=f"https://t.me/{bot_username}?start=buy")],
+        [InlineKeyboardButton(text="Оплата звёздами ⭐️", callback_data="pm_stars_onboarding")],
+        [InlineKeyboardButton(text="СБП", callback_data="pm_sbp_onboarding")],
     ])
 
 
@@ -194,7 +195,7 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
             "🏖 фотосессия на пляже\n"
             "📸 стиль Pinterest или журнал Vogue\n\n"
             "Выбирай стиль и создавай фото 👇",
-            reply_markup=_get_onboarding_buy_keyboard((await message.bot.get_me()).username),
+            reply_markup=_get_onboarding_buy_keyboard(),
         )
 
         # Notify backend (fires push notifications for nudging)
