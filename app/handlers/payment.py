@@ -130,7 +130,7 @@ async def handle_pay_method_stars(callback: CallbackQuery, analytics: AnalyticsC
 
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("pm_sbp_"))
 async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsClient):
-    """User chose SBP — show tier selection with rubles pricing."""
+    """User chose card/SBP/SberPay — for onboarding (1 tier) go straight to payment link, otherwise show tier selection."""
     await callback.answer()
     context = callback.data.replace("pm_sbp_", "")
     telegram_id = callback.from_user.id
@@ -139,7 +139,7 @@ async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsCli
     try:
         price_data = await backend.get_price(telegram_id, context=price_context)
     except Exception as e:
-        logger.error(f"Ошибка получения цены для СБП: {e}")
+        logger.error(f"Ошибка получения цены: {e}")
         await callback.message.answer("⚠️ Не удалось получить тарифы. Попробуй позже.")
         return
 
@@ -148,6 +148,54 @@ async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsCli
         await callback.message.answer("⚠️ Не удалось получить тарифы. Попробуй позже.")
         return
 
+    # Onboarding: 1 tier — skip selection, create payment immediately
+    if len(tiers) == 1:
+        t = tiers[0]
+        gen = t["generations"]
+        rubles = t.get("rubles", 0)
+        if not rubles:
+            await callback.message.answer("⚠️ Тариф недоступен.")
+            return
+
+        try:
+            result = await backend.create_yookassa_payment(
+                telegram_id=telegram_id,
+                generations=gen,
+                amount_rubles=rubles,
+            )
+        except Exception as e:
+            logger.error(f"Ошибка создания платежа ЮКасса: {e}")
+            await callback.message.answer("⚠️ Не удалось создать платёж. Попробуй позже.")
+            return
+
+        confirmation_url = result.get("confirmation_url")
+        yookassa_id = result.get("yookassa_id")
+
+        if not confirmation_url:
+            await callback.message.answer("⚠️ Не удалось получить ссылку на оплату.")
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Оплатить 💳", url=confirmation_url)],
+            [InlineKeyboardButton(text="Проверить оплату ✅", callback_data=f"check_yookassa_{yookassa_id}")],
+        ])
+
+        await callback.message.answer(
+            f"💳 Оплата: {rubles} ₽ за {gen} генераций\n\n"
+            f"Доступны: банковская карта, СБП, SberPay\n\n"
+            f"1. Нажми «Оплатить» — откроется страница оплаты\n"
+            f"2. Выбери удобный способ и оплати\n"
+            f"3. Вернись сюда и нажми «Проверить оплату»",
+            reply_markup=keyboard,
+        )
+
+        if analytics:
+            await analytics.track("sbp_payment_link_sent", user_id=str(telegram_id), properties={
+                "amount_rubles": rubles, "generations": gen, "yookassa_id": yookassa_id, "source": context,
+            })
+        return
+
+    # Menu: multiple tiers — show selection
     buttons = []
     for t in tiers:
         gen = t["generations"]
