@@ -130,7 +130,7 @@ async def handle_pay_method_stars(callback: CallbackQuery, analytics: AnalyticsC
 
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("pm_sbp_"))
 async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsClient):
-    """User chose SBP — show tier selection (same tiers)."""
+    """User chose SBP — show tier selection with rubles pricing."""
     await callback.answer()
     context = callback.data.replace("pm_sbp_", "")
     telegram_id = callback.from_user.id
@@ -156,7 +156,7 @@ async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsCli
             continue
         buttons.append([InlineKeyboardButton(
             text=f"{gen} генераций — {rubles} ₽",
-            callback_data=f"sbp_tier_{gen}",
+            callback_data=f"sbp_tier_{gen}_{rubles}",
         )])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -164,9 +164,116 @@ async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsCli
 
 
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("sbp_tier_"))
-async def handle_sbp_tier(callback: CallbackQuery):
-    """User selected an SBP tier — not available yet."""
-    await callback.answer("СБП пока недоступно", show_alert=True)
+async def handle_sbp_tier(callback: CallbackQuery, analytics: AnalyticsClient):
+    """User selected an SBP tier — create YooKassa payment and send payment link."""
+    await callback.answer()
+
+    try:
+        parts = callback.data.split("_")
+        generations = int(parts[2])
+        rubles = int(parts[3])
+    except (IndexError, ValueError):
+        await callback.message.answer("⚠️ Ошибка выбора тарифа.")
+        return
+
+    telegram_id = callback.from_user.id
+
+    try:
+        result = await backend.create_yookassa_payment(
+            telegram_id=telegram_id,
+            generations=generations,
+            amount_rubles=rubles,
+        )
+    except Exception as e:
+        logger.error(f"Ошибка создания платежа ЮКасса: {e}")
+        await callback.message.answer("⚠️ Не удалось создать платёж. Попробуй позже.")
+        return
+
+    confirmation_url = result.get("confirmation_url")
+    yookassa_id = result.get("yookassa_id")
+
+    if not confirmation_url:
+        await callback.message.answer("⚠️ Не удалось получить ссылку на оплату.")
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Оплатить через СБП 💳", url=confirmation_url)],
+        [InlineKeyboardButton(text="Проверить оплату ✅", callback_data=f"check_yookassa_{yookassa_id}")],
+    ])
+
+    await callback.message.answer(
+        f"💳 Оплата через СБП: {rubles} ₽\n\n"
+        f"1. Нажми «Оплатить через СБП» — откроется страница оплаты\n"
+        f"2. Оплати через приложение банка\n"
+        f"3. Вернись сюда и нажми «Проверить оплату»",
+        reply_markup=keyboard,
+    )
+
+    if analytics:
+        await analytics.track("sbp_payment_link_sent", user_id=str(telegram_id), properties={
+            "amount_rubles": rubles, "generations": generations, "yookassa_id": yookassa_id,
+        })
+
+
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("check_yookassa_"))
+async def handle_check_yookassa(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
+    """User clicked 'Check payment' — verify YooKassa payment status."""
+    await callback.answer()
+    yookassa_id = callback.data.replace("check_yookassa_", "")
+    telegram_id = callback.from_user.id
+
+    try:
+        result = await backend.check_yookassa_payment(telegram_id, yookassa_id)
+    except Exception as e:
+        logger.error(f"Ошибка проверки платежа ЮКасса: {e}")
+        await callback.message.answer("⚠️ Не удалось проверить статус. Попробуй ещё раз.")
+        return
+
+    if not result.get("found"):
+        await callback.message.answer("⚠️ Платёж не найден.")
+        return
+
+    status = result.get("status")
+    generations = result.get("generations", 0)
+
+    if status == "succeeded":
+        # Clear onboarding_paywall state if active
+        current_state = await state.get_state()
+        if current_state == PhotoUploadStates.onboarding_paywall.state:
+            await state.clear()
+
+        # Get fresh user balance
+        try:
+            user_data = await backend.get_user(telegram_id)
+            remaining = user_data.get("generations_remaining", "?")
+        except Exception:
+            remaining = "?"
+
+        await callback.message.answer(
+            f"✅ Оплата прошла!\n\n"
+            f"Начислено: {generations} генераций\n"
+            f"Доступно: {remaining} генераций\n\n"
+            "Выбирай стиль и создавай фото 👇",
+            reply_markup=get_main_menu_keyboard(),
+        )
+
+        if analytics:
+            await analytics.track("sbp_payment_confirmed", user_id=str(telegram_id), properties={
+                "yookassa_id": yookassa_id, "generations": generations,
+            })
+
+    elif status == "canceled":
+        await callback.message.answer("❌ Платёж отменён. Попробуй ещё раз.")
+
+    else:
+        # Still pending
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Проверить ещё раз ✅", callback_data=f"check_yookassa_{yookassa_id}")],
+        ])
+        await callback.message.answer(
+            "⏳ Оплата ещё не подтверждена. Если ты уже оплатил — подожди минуту и нажми кнопку ещё раз.",
+            reply_markup=keyboard,
+        )
 
 
 @router.pre_checkout_query()

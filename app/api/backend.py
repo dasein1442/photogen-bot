@@ -209,6 +209,34 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def create_yookassa_payment(self, telegram_id: int, generations: int, amount_rubles: int) -> dict:
+        """POST /payments/yookassa/create — создать платёж ЮКасса."""
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "telegram_id": telegram_id,
+                "generations": generations,
+                "amount_rubles": amount_rubles,
+            }
+            async with session.post(
+                f"{self.base_url}/payments/yookassa/create", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def check_yookassa_payment(self, telegram_id: int, yookassa_id: str | None = None) -> dict:
+        """GET /payments/yookassa/status — проверить статус платежа."""
+        async with aiohttp.ClientSession() as session:
+            params = {"telegram_id": telegram_id}
+            if yookassa_id:
+                params["yookassa_id"] = yookassa_id
+            async with session.get(
+                f"{self.base_url}/payments/yookassa/status",
+                params=params,
+                headers=self._headers(),
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
     async def notify_payment_flow(self, telegram_id: int) -> dict:
         """POST /payments/flow-started — сообщить о начале оплаты."""
         async with aiohttp.ClientSession() as session:
