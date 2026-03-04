@@ -197,14 +197,15 @@ async def handle_sbp_tier(callback: CallbackQuery, analytics: AnalyticsClient):
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Оплатить через СБП 💳", url=confirmation_url)],
+        [InlineKeyboardButton(text="Оплатить 💳", url=confirmation_url)],
         [InlineKeyboardButton(text="Проверить оплату ✅", callback_data=f"check_yookassa_{yookassa_id}")],
     ])
 
     await callback.message.answer(
-        f"💳 Оплата через СБП: {rubles} ₽\n\n"
-        f"1. Нажми «Оплатить через СБП» — откроется страница оплаты\n"
-        f"2. Оплати через приложение банка\n"
+        f"💳 Оплата: {rubles} ₽\n\n"
+        f"Доступны: банковская карта, СБП, SberPay\n\n"
+        f"1. Нажми «Оплатить» — откроется страница оплаты\n"
+        f"2. Выбери удобный способ и оплати\n"
         f"3. Вернись сюда и нажми «Проверить оплату»",
         reply_markup=keyboard,
     )
