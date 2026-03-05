@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \"from app.handlers.photosessions import router; print\\(''OK''\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''app/handlers/photosessions.py''\\).read\\(\\)\\); print\\(''Syntax OK''\\)\")"
+    ]
+  }
+}
