@@ -20,7 +20,8 @@ class BackendClient:
         return {"Authorization": f"Bearer {config.API_SECRET_TOKEN}"}
 
     async def register_user(
-        self, telegram_id: int, username: str | None, first_name: str | None, last_name: str | None
+        self, telegram_id: int, username: str | None, first_name: str | None, last_name: str | None,
+        source: str | None = None,
     ) -> dict:
         """POST /users/register — регистрация/обновление пользователя."""
         async with aiohttp.ClientSession() as session:
@@ -30,6 +31,8 @@ class BackendClient:
                 "first_name": first_name or "",
                 "last_name": last_name or "",
             }
+            if source is not None:
+                payload["source"] = source
             async with session.post(
                 f"{self.base_url}/users/register", json=payload, headers=self._headers()
             ) as resp:
