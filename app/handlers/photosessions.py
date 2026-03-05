@@ -53,7 +53,7 @@ async def handle_photosession_view(callback: CallbackQuery, analytics: Analytics
 
     name = ps.get("name", f"Фотосессия {photosession_id}")
     description = ps.get("description", "")
-    example_images = ps.get("example_images") or []
+    example_url = ps.get("example")
 
     detail_text = f"<b>{name}</b>"
     if description:
@@ -69,9 +69,9 @@ async def handle_photosession_view(callback: CallbackQuery, analytics: Analytics
     except Exception:
         pass
 
-    if example_images:
+    if example_url:
         await callback.message.answer_photo(
-            photo=URLInputFile(example_images[0]),
+            photo=URLInputFile(example_url),
             caption=detail_text,
             parse_mode="HTML",
             reply_markup=keyboard,
