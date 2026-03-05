@@ -1,5 +1,4 @@
 import logging
-from math import ceil
 
 from aiogram import F, Router
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, URLInputFile
@@ -10,47 +9,9 @@ from app.services.analytics_sdk import AnalyticsClient
 logger = logging.getLogger(__name__)
 router = Router()
 
-ITEMS_PER_PAGE = 10  # 5 rows × 2 columns
-
-
-def _build_list_keyboard(photosessions: list, page: int) -> InlineKeyboardMarkup:
-    total_pages = ceil(len(photosessions) / ITEMS_PER_PAGE)
-    start = page * ITEMS_PER_PAGE
-    page_items = photosessions[start:start + ITEMS_PER_PAGE]
-
-    rows = []
-    for i in range(0, len(page_items), 2):
-        pair = page_items[i:i + 2]
-        row = []
-        for ps in pair:
-            name = ps.get("name") or f"Фотосессия {ps['id']}"
-            row.append(InlineKeyboardButton(
-                text=name,
-                callback_data=f"ps_view_{ps['id']}_p{page}",
-            ))
-        rows.append(row)
-
-    if total_pages > 1:
-        nav = []
-        nav.append(
-            InlineKeyboardButton(text="◀️", callback_data=f"ps_list_{page - 1}")
-            if page > 0 else InlineKeyboardButton(text=" ", callback_data="ps_noop")
-        )
-        nav.append(
-            InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="ps_noop")
-        )
-        nav.append(
-            InlineKeyboardButton(text="▶️", callback_data=f"ps_list_{page + 1}")
-            if page < total_pages - 1 else InlineKeyboardButton(text=" ", callback_data="ps_noop")
-        )
-        rows.append(nav)
-
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
 
 @router.message(F.text == "Фотосессии")
 async def handle_photosessions(message: Message, analytics: AnalyticsClient):
-    """Загружает фотосессии с бэкенда и показывает как inline-кнопки."""
     try:
         photosessions = await backend.get_photosessions()
     except Exception as e:
@@ -64,36 +25,22 @@ async def handle_photosessions(message: Message, analytics: AnalyticsClient):
         await message.answer("Пока нет доступных фотосессий. Заходи позже!")
         return
 
-    await message.answer("Выбери фотосессию 📸👇", reply_markup=_build_list_keyboard(photosessions, 0))
+    buttons = []
+    for ps in photosessions:
+        name = ps.get("name") or f"Фотосессия {ps['id']}"
+        buttons.append([InlineKeyboardButton(text=name, callback_data=f"ps_view_{ps['id']}")])
 
-
-@router.callback_query(lambda cb: cb.data and cb.data.startswith("ps_list_"))
-async def handle_page(callback: CallbackQuery):
-    """Переключение страниц — редактируем текущее сообщение."""
-    page = int(callback.data.split("_")[2])
-    try:
-        photosessions = await backend.get_photosessions()
-    except Exception as e:
-        logger.error(f"Ошибка загрузки фотосессий: {e}")
-        await callback.answer("⚠️ Ошибка. Попробуй позже.")
-        return
-
-    await callback.message.edit_reply_markup(reply_markup=_build_list_keyboard(photosessions, page))
-    await callback.answer()
+    await message.answer("Выбери фотосессию 📸👇", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("ps_view_"))
 async def handle_photosession_view(callback: CallbackQuery, analytics: AnalyticsClient):
-    """Показываем детальный вид фотосессии — удаляем список, показываем карточку."""
-    # callback_data: ps_view_{id}_p{page}
-    parts = callback.data.split("_")
-    photosession_id = int(parts[2])
-    page = int(parts[3][1:]) if len(parts) > 3 else 0
+    photosession_id = int(callback.data.split("_")[2])
 
     try:
         photosessions = await backend.get_photosessions()
     except Exception as e:
-        logger.error(f"Ошибка загрузки фотосессий: {e}", exc_info=True)
+        logger.error(f"Ошибка загрузки фотосессий: {e}")
         await callback.answer("⚠️ Не удалось загрузить фотосессию.")
         return
 
@@ -114,10 +61,9 @@ async def handle_photosession_view(callback: CallbackQuery, analytics: Analytics
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Начать генерацию", callback_data=f"ps_gen_{photosession_id}")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data=f"ps_back_{page}")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="ps_back")],
     ])
 
-    # Удаляем сообщение со списком
     try:
         await callback.message.delete()
     except Exception:
@@ -136,10 +82,8 @@ async def handle_photosession_view(callback: CallbackQuery, analytics: Analytics
     await callback.answer()
 
 
-@router.callback_query(lambda cb: cb.data and cb.data.startswith("ps_back_"))
+@router.callback_query(lambda cb: cb.data == "ps_back")
 async def handle_back(callback: CallbackQuery):
-    """Вернуться к списку — удаляем карточку, показываем список."""
-    page = int(callback.data.split("_")[2])
     try:
         photosessions = await backend.get_photosessions()
     except Exception as e:
@@ -147,15 +91,15 @@ async def handle_back(callback: CallbackQuery):
         await callback.answer("⚠️ Ошибка. Попробуй позже.")
         return
 
+    buttons = []
+    for ps in photosessions:
+        name = ps.get("name") or f"Фотосессия {ps['id']}"
+        buttons.append([InlineKeyboardButton(text=name, callback_data=f"ps_view_{ps['id']}")])
+
     try:
         await callback.message.delete()
     except Exception:
         pass
 
-    await callback.message.answer("Выбери фотосессию 📸👇", reply_markup=_build_list_keyboard(photosessions, page))
-    await callback.answer()
-
-
-@router.callback_query(lambda cb: cb.data == "ps_noop")
-async def handle_noop(callback: CallbackQuery):
+    await callback.message.answer("Выбери фотосессию 📸👇", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     await callback.answer()
