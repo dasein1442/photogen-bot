@@ -29,10 +29,10 @@ def _format_validation_errors(errors: list[str]) -> str:
     return "\n".join(lines)
 
 
-@router.callback_query(lambda cb: cb.data and cb.data.startswith("photosession_"))
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("ps_gen_"))
 async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Пользователь выбрал фотосессию."""
-    photosession_id = int(callback.data.split("_")[1])
+    """Пользователь нажал 'Начать генерацию' в детальном виде фотосессии."""
+    photosession_id = int(callback.data.split("_")[2])
     await analytics.track("photosession_selected", user_id=str(callback.from_user.id), properties={"photosession_id": photosession_id})
 
     # Проверяем, установлено ли фото профиля

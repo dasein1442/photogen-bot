@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, URLInputFile
 
 from app.api.backend import backend
 from app.services.analytics_sdk import AnalyticsClient
@@ -12,7 +12,6 @@ router = Router()
 
 @router.message(F.text == "Фотосессии")
 async def handle_photosessions(message: Message, analytics: AnalyticsClient):
-    """Загружает фотосессии с бэкенда и показывает как inline-кнопки."""
     try:
         photosessions = await backend.get_photosessions()
     except Exception as e:
@@ -28,18 +27,79 @@ async def handle_photosessions(message: Message, analytics: AnalyticsClient):
 
     buttons = []
     for ps in photosessions:
-        name = ps.get("name", f"Фотосессия {ps['id']}")
-        count = ps.get("preset_count", 0)
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"{name} ({count} фото)",
-                callback_data=f"photosession_{ps['id']}",
-            )
-        ])
+        name = ps.get("name") or f"Фотосессия {ps['id']}"
+        buttons.append([InlineKeyboardButton(text=name, callback_data=f"ps_view_{ps['id']}")])
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer("Выбери фотосессию 📸👇", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
-    await message.answer(
-        "Выбери фотосессию 📸👇",
-        reply_markup=keyboard,
-    )
+
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("ps_view_"))
+async def handle_photosession_view(callback: CallbackQuery, analytics: AnalyticsClient):
+    photosession_id = int(callback.data.split("_")[2])
+
+    try:
+        photosessions = await backend.get_photosessions()
+    except Exception as e:
+        logger.error(f"Ошибка загрузки фотосессий: {e}")
+        await callback.answer("⚠️ Не удалось загрузить фотосессию.")
+        return
+
+    ps = next((p for p in photosessions if p["id"] == photosession_id), None)
+    if ps is None:
+        await callback.answer("⚠️ Фотосессия не найдена.")
+        return
+
+    await analytics.track("photosession_viewed", user_id=str(callback.from_user.id), properties={"photosession_id": photosession_id})
+
+    name = ps.get("name", f"Фотосессия {photosession_id}")
+    description = ps.get("description", "")
+    example_images = ps.get("example_images") or []
+
+    detail_text = f"<b>{name}</b>"
+    if description:
+        detail_text += f"\n\n{description}"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Начать генерацию", callback_data=f"ps_gen_{photosession_id}")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="ps_back")],
+    ])
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    if example_images:
+        await callback.message.answer_photo(
+            photo=URLInputFile(example_images[0]),
+            caption=detail_text,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+    else:
+        await callback.message.answer(detail_text, parse_mode="HTML", reply_markup=keyboard)
+
+    await callback.answer()
+
+
+@router.callback_query(lambda cb: cb.data == "ps_back")
+async def handle_back(callback: CallbackQuery):
+    try:
+        photosessions = await backend.get_photosessions()
+    except Exception as e:
+        logger.error(f"Ошибка загрузки фотосессий: {e}")
+        await callback.answer("⚠️ Ошибка. Попробуй позже.")
+        return
+
+    buttons = []
+    for ps in photosessions:
+        name = ps.get("name") or f"Фотосессия {ps['id']}"
+        buttons.append([InlineKeyboardButton(text=name, callback_data=f"ps_view_{ps['id']}")])
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await callback.message.answer("Выбери фотосессию 📸👇", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
