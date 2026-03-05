@@ -54,5 +54,5 @@ async def handle_back_to_menu(message: Message, analytics: AnalyticsClient):
 @router.message(F.text == "Служба заботы")
 async def handle_support(message: Message):
     await message.answer(
-        "В случае возникновения проблем обращайтесь в чат поддержки (https://t.me/fotushkasupport)."
+        "В случае возникновения проблем обращайтесь в чат поддержки (https://t.me/IIUSNO)."
     )
