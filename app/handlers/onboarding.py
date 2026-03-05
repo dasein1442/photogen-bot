@@ -56,11 +56,12 @@ async def handle_start_upload_photo(message: Message, state: FSMContext, analyti
             username=user.username,
             first_name=user.first_name,
             last_name=user.last_name,
+            source="upload_photo",
         )
     except Exception as e:
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
 
-    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "upload_photo", "is_new_user": result.get("created", True)})
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "upload_photo", "source": "upload_photo", "is_new_user": result.get("created", True)})
 
     # Check if user completed onboarding but hasn't purchased — show paywall
     try:
@@ -104,11 +105,12 @@ async def handle_start_buy(message: Message, state: FSMContext, analytics: Analy
             username=user.username,
             first_name=user.first_name,
             last_name=user.last_name,
+            source="buy",
         )
     except Exception as e:
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
 
-    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "buy", "is_new_user": result.get("created", True)})
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "buy", "source": "buy", "is_new_user": result.get("created", True)})
 
     # Check if user is in post-onboarding paywall scenario
     try:
@@ -130,6 +132,11 @@ async def handle_start_buy(message: Message, state: FSMContext, analytics: Analy
 async def handle_start(message: Message, state: FSMContext, analytics: AnalyticsClient):
     user = message.from_user
 
+    # Извлекаем deep_link параметр из текста команды (формат: "/start yd1")
+    parts = (message.text or "").split(maxsplit=1)
+    deep_link_param = parts[1] if len(parts) > 1 else None
+    source = deep_link_param if deep_link_param not in (None, "upload_photo", "buy") else None
+
     # Регистрация пользователя на бэкенде
     reg_data = {}
     try:
@@ -138,13 +145,14 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
             username=user.username,
             first_name=user.first_name,
             last_name=user.last_name,
+            source=source,
         )
         generations = reg_data.get("generations_remaining", "?")
     except Exception as e:
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
         generations = "?"
 
-    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "none", "is_new_user": reg_data.get("created", True)})
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": deep_link_param or "none", "source": source, "is_new_user": reg_data.get("created", True)})
 
     # Clear any stale FSM state (e.g. onboarding_paywall) so buttons work
     await state.clear()

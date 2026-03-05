@@ -41,13 +41,14 @@ async def handle_profile(message: Message, analytics: AnalyticsClient):
 
     await analytics.track("profile_viewed", user_id=str(message.from_user.id), properties={"generations_remaining": user_data.get("generations_remaining", 0)})
 
-    photo_status = "✅ Установлено" if profile_photo_id else "❌ Не установлено"
+    first_name = message.from_user.first_name or "—"
+    photo_status = "установлено ✅" if profile_photo_id else "не установлено"
 
     profile_text = (
-        "**Профиль**\n\n"
-        f"**Фото профиля:** {photo_status}\n"
-        f"**Оставшееся количество генераций:** {generations}.\n\n"
-        "Чтобы обновить фото профиля — нажми «Установить новое фото»."
+        f"👤  *{first_name}*\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"📷  Фото:  {photo_status}\n"
+        f"💎  Генерации:  *{generations}*\n"
     )
 
     await message.answer(

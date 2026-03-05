@@ -29,12 +29,24 @@ class PaywallGuardMiddleware(BaseMiddleware):
         if current_state != PhotoUploadStates.onboarding_paywall.state:
             return await handler(event, data)
 
+        # State is onboarding_paywall — but check if user already purchased (e.g. manually granted)
+        try:
+            from app.api.backend import backend
+            telegram_id = event.from_user.id if event.from_user else None
+            if telegram_id:
+                user_data = await backend.get_user(telegram_id=telegram_id)
+                if user_data.get("user", {}).get("has_purchased"):
+                    await state.clear()
+                    return await handler(event, data)
+        except Exception as e:
+            logger.warning(f"PaywallGuard: не удалось проверить has_purchased: {e}")
+
         # Allow pre_checkout and successful_payment through
         if isinstance(event, Message):
             if event.successful_payment:
                 return await handler(event, data)
-            # Allow /start commands through (they have their own guard)
-            if event.text and event.text.startswith("/start"):
+            # Allow /start and /menu commands through (they have their own guard)
+            if event.text and (event.text.startswith("/start") or event.text.startswith("/menu")):
                 return await handler(event, data)
 
         # Allow payment-related callbacks through
