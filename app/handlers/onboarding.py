@@ -31,6 +31,35 @@ WELCOME_EXAMPLE_IMAGE_PATHS = (
 )
 
 
+async def _show_welcome(message: Message):
+    """Show the welcome message with promo image."""
+    welcome_text = (
+        "<b>Привет</b> 👋\n\n"
+        "Ты в <b>Кадрице</b> — боте, который делает из твоего фото профессиональные снимки с помощью ИИ ✨\n\n"
+        "Загрузи одно селфи — и нейросеть создаст <b>реалистичные фотосессии</b>: на яхте, в деловом образе, на обложке журнала или даже в стиле селебрити 💅\n\n"
+        "<b>Попробуй прямо сейчас — это займёт минуту!</b>"
+    )
+
+    promo_image_path = next(
+        (WELCOME_PROMO_IMAGE_DIR / name for name in WELCOME_PROMO_IMAGE_CANDIDATES if (WELCOME_PROMO_IMAGE_DIR / name).exists()),
+        None,
+    )
+
+    if promo_image_path:
+        await message.answer_photo(
+            photo=FSInputFile(str(promo_image_path)),
+            caption=welcome_text,
+            reply_markup=get_welcome_keyboard(),
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(
+            welcome_text,
+            reply_markup=get_welcome_keyboard(),
+            parse_mode="HTML",
+        )
+
+
 async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FSMContext):
     """Show paywall for user who completed onboarding but hasn't purchased. Shows payment method selection."""
     await message.answer(
@@ -62,6 +91,11 @@ async def handle_start_upload_photo(message: Message, state: FSMContext, analyti
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
 
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "upload_photo", "source": "upload_photo", "is_new_user": result.get("created", True)})
+
+    # New user — show full welcome instead of jumping to upload
+    if result.get("created", False):
+        await state.clear()
+        return await _show_welcome(message)
 
     # Check if user completed onboarding but hasn't purchased — show paywall
     try:
@@ -167,32 +201,7 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
     except Exception:
         pass
 
-    welcome_text = (
-        "<b>Привет</b> 👋\n\n"
-        "Ты в <b>Кадрице</b> — боте, который делает из твоего фото профессиональные снимки с помощью ИИ ✨\n\n"
-        "Загрузи одно селфи — и нейросеть создаст <b>реалистичные фотосессии</b>: на яхте, в деловом образе, на обложке журнала или даже в стиле селебрити 💅\n\n"
-        "<b>Попробуй прямо сейчас — это займёт минуту!</b>"
-    )
-
-    promo_image_path = next(
-        (WELCOME_PROMO_IMAGE_DIR / name for name in WELCOME_PROMO_IMAGE_CANDIDATES if (WELCOME_PROMO_IMAGE_DIR / name).exists()),
-        None,
-    )
-
-    if promo_image_path:
-        await message.answer_photo(
-            photo=FSInputFile(str(promo_image_path)),
-            caption=welcome_text,
-            reply_markup=get_welcome_keyboard(),
-            parse_mode="HTML",
-        )
-        return
-
-    await message.answer(
-        welcome_text,
-        reply_markup=get_welcome_keyboard(),
-        parse_mode="HTML",
-    )
+    await _show_welcome(message)
 
 
 @router.callback_query(lambda callback: callback.data == "more_examples")
