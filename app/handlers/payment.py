@@ -359,7 +359,13 @@ async def handle_successful_payment(message: Message, state: FSMContext, analyti
         )
         return
 
-    await analytics.track("payment_completed", user_id=str(message.from_user.id), properties={"stars_paid": message.successful_payment.total_amount, "generations": generations, "telegram_payment_charge_id": message.successful_payment.telegram_payment_charge_id})
+    await analytics.track("payment_completed", user_id=str(message.from_user.id), properties={
+        "amount": message.successful_payment.total_amount,
+        "currency": "XTR",
+        "method": "stars",
+        "generations": generations,
+        "telegram_payment_charge_id": message.successful_payment.telegram_payment_charge_id,
+    })
 
     # Clear onboarding_paywall state if active
     current_state = await state.get_state()
