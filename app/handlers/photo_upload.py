@@ -37,6 +37,23 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
         await message.answer("⚠️ Не удалось скачать фото. Попробуй ещё раз.")
         return
 
+    # Определяем источник загрузки (до валидации, чтобы трекать все попытки)
+    data = await state.get_data()
+    photosession_id = data.get("photosession_id")
+    random_mode = data.get("random_mode", False)
+    onboarding_mode = data.get("onboarding_mode", False)
+
+    if onboarding_mode:
+        upload_source = "onboarding"
+    elif random_mode:
+        upload_source = "random"
+    elif photosession_id:
+        upload_source = "photosession"
+    else:
+        upload_source = "profile"
+
+    await analytics.track("photo_upload_started", user_id=str(message.from_user.id), properties={"source": upload_source})
+
     # Загружаем на бэкенд (с валидацией)
     try:
         result = await backend.upload_photo(
@@ -65,23 +82,6 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
         logger.error(f"Ошибка установки profile photo: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось сохранить фото профиля. Попробуй позже.")
         return
-
-    # Проверяем, пришли ли из flow генерации
-    data = await state.get_data()
-    photosession_id = data.get("photosession_id")
-    random_mode = data.get("random_mode", False)
-    onboarding_mode = data.get("onboarding_mode", False)
-
-    if onboarding_mode:
-        upload_source = "onboarding"
-    elif random_mode:
-        upload_source = "random"
-    elif photosession_id:
-        upload_source = "photosession"
-    else:
-        upload_source = "profile"
-
-    await analytics.track("photo_upload_started", user_id=str(message.from_user.id), properties={"source": upload_source})
 
     await state.clear()
 
