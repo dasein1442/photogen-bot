@@ -107,7 +107,7 @@ def _get_onboarding_buy_keyboard() -> InlineKeyboardMarkup:
     """Inline keyboard with payment method selection for onboarding paywall."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Оплата звёздами ⭐️", callback_data="pm_stars_onboarding")],
-        [InlineKeyboardButton(text="СБП", callback_data="pm_sbp_onboarding")],
+        [InlineKeyboardButton(text="Картой / СБП / SberPay 💳", callback_data="pm_sbp_onboarding")],
     ])
 
 

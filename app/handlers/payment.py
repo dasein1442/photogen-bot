@@ -300,9 +300,7 @@ async def handle_check_yookassa(callback: CallbackQuery, state: FSMContext, anal
 
         await callback.message.answer(
             f"✅ Оплата прошла!\n\n"
-            f"Начислено: {generations} генераций\n"
-            f"Доступно: {remaining} генераций\n\n"
-            "Выбирай стиль и создавай фото 👇",
+            f"Тебе доступно {remaining} генераций — выбирай стиль и создавай фото 👇",
             reply_markup=get_main_menu_keyboard(),
         )
 
@@ -370,8 +368,6 @@ async def handle_successful_payment(message: Message, state: FSMContext, analyti
 
     await message.answer(
         f"✅ Спасибо за покупку!\n\n"
-        f"Начислено: {generations} генераций\n"
-        f"Доступно: {remaining} генераций\n\n"
-        "Выбирай стиль и создавай фото 👇",
+        f"Тебе доступно {remaining} генераций — выбирай стиль и создавай фото 👇",
         reply_markup=get_main_menu_keyboard(),
     )
