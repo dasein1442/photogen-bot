@@ -1,20 +1,23 @@
 import logging
+from pathlib import Path
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
-from app.keyboards.payment import get_buy_keyboard
+from app.keyboards.payment import get_buy_keyboard, get_payment_method_keyboard
 from app.handlers.generation import _format_validation_errors, _do_generation
 from app.services.tg_sender import download_photo, send_photos
 from app.handlers.random_photo import _do_random_generation
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+WELCOME_PRICE_IMAGE_PATH = Path(__file__).resolve().parents[1] / "assets" / "welcome_price.jpg"
 
 
 async def _handle_upload(message: Message, state: FSMContext, analytics: AnalyticsClient):
@@ -187,26 +190,14 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
             except Exception as re:
                 logger.error(f"[tg={telegram_id}] onboarding: refund failed: {re}", exc_info=True)
 
-        # Show paywall text with buy button (deep link)
+        # Show result message with "next" button
         await message.answer(
             "😍 Смотри, какая ты получилась!\n\n"
-            "Это только проба — дальше можешь создавать реалистичные фото в любых образах:\n\n"
-            "👔 деловая съёмка\n"
-            "🏖 фотосессия на пляже\n"
-            "📸 стиль Pinterest или журнал Vogue\n\n"
-            "Выбирай стиль и создавай фото 👇",
-            reply_markup=_get_onboarding_buy_keyboard(),
+            "Это только проба — дальше будет ещё круче!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Перейти дальше 🚀", callback_data="onboarding_next")],
+            ]),
         )
-
-        # Notify backend (fires push notifications for nudging)
-        try:
-            await backend.notify_onboarding_paywall(telegram_id)
-        except Exception as e:
-            logger.error(f"Ошибка уведомления об онбординг-пейволле: {e}")
-
-        # Set FSM state to block menu until purchase
-        if state:
-            await state.set_state(PhotoUploadStates.onboarding_paywall)
 
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
@@ -251,4 +242,60 @@ async def handle_upload_profile_photo(callback: CallbackQuery, state: FSMContext
         parse_mode="Markdown",
     )
 
+    await callback.answer()
+
+
+@router.callback_query(lambda callback: callback.data == "onboarding_next")
+async def handle_onboarding_next(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
+    """Show welcome_price promo image with discount text and payment button."""
+    await analytics.track("onboarding_next_clicked", user_id=str(callback.from_user.id))
+
+    promo_text = (
+        "🔥 Скидка 70% только первый час!\n"
+        "Полный доступ за 398₽ вместо 1500₽\n\n"
+        "Получи не просто пробу, а весь функционал навсегда 👇\n\n"
+        "– 80+ готовых образов\n"
+        "– Более 15 фотосессий в разных стилях\n\n"
+        "✨ Всё это по цене дешевле кофе с круассаном ☕️🥐\n"
+        "Но результат останется навсегда — как твои лучшие фото.\n\n"
+        "Акция действует только 1 час ⏳\n"
+        "Не упусти шанс активировать доступ по сниженной цене."
+    )
+
+    payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Перейти к оплате 💜", callback_data="onboarding_pay")],
+    ])
+
+    if WELCOME_PRICE_IMAGE_PATH.exists():
+        await callback.message.answer_photo(
+            photo=FSInputFile(str(WELCOME_PRICE_IMAGE_PATH)),
+            caption=promo_text,
+            reply_markup=payment_keyboard,
+        )
+    else:
+        await callback.message.answer(
+            promo_text,
+            reply_markup=payment_keyboard,
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(lambda callback: callback.data == "onboarding_pay")
+async def handle_onboarding_pay(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
+    """Show payment method selection from the onboarding promo."""
+    await analytics.track("onboarding_pay_clicked", user_id=str(callback.from_user.id))
+
+    await callback.message.answer(
+        "Выбери способ оплаты 👇",
+        reply_markup=get_payment_method_keyboard("onboarding"),
+    )
+
+    # Notify backend (fires push notifications for nudging)
+    try:
+        await backend.notify_onboarding_paywall(callback.from_user.id)
+    except Exception as e:
+        logger.error(f"Ошибка уведомления об онбординг-пейволле: {e}")
+
+    await state.set_state(PhotoUploadStates.onboarding_paywall)
     await callback.answer()
