@@ -32,6 +32,12 @@ WELCOME_EXAMPLE_IMAGE_PATHS = (
 )
 
 
+def _parse_deep_link(message: Message) -> str | None:
+    """Extract deep link argument from /start command text."""
+    parts = (message.text or "").split(maxsplit=1)
+    return parts[1] if len(parts) > 1 else None
+
+
 async def _show_welcome(message: Message):
     """Show the welcome message with promo image."""
     welcome_text = (
@@ -73,48 +79,8 @@ async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FS
     await state.set_state(PhotoUploadStates.onboarding_paywall)
 
 
-@router.message(CommandStart(deep_link="upload_photo"))
-async def handle_start_upload_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    """Deep link from onboarding reminder push — go straight to photo upload."""
-    user = message.from_user
-
-    # Deduplicate rapid /start messages (Telegram client may send two)
-    data = await state.get_data()
-    last_start_date = data.get("_last_start_date")
-    if last_start_date and (message.date - last_start_date) < timedelta(seconds=5):
-        return
-    await state.update_data(_last_start_date=message.date)
-
-    # Регистрация (idempotent)
-    result = {}
-    try:
-        result = await backend.register_user(
-            telegram_id=user.id,
-            username=user.username,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            source="upload_photo",
-        )
-    except Exception as e:
-        logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
-
-    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "upload_photo", "source": "upload_photo", "is_new_user": result.get("created", True)})
-
-    # New user — show full welcome instead of jumping to upload
-    if result.get("created", False):
-        await state.clear()
-        return await _show_welcome(message)
-
-    # Check if user completed onboarding but hasn't purchased — show paywall
-    try:
-        user_data = await backend.get_user(telegram_id=user.id)
-        user_info = user_data.get("user", {})
-        if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
-            await _send_onboarding_paywall(message, user.id, state)
-            return
-    except Exception:
-        pass
-
+async def _show_upload_photo_prompt(message: Message, state: FSMContext):
+    """Show the 'upload photo' prompt for returning users."""
     try_now_text = (
         "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
         "Отправь 1 фото — я сделаю тебе тестовый снимок за несколько секунд ✨\n\n"
@@ -134,42 +100,94 @@ async def handle_start_upload_photo(message: Message, state: FSMContext, analyti
     await state.update_data(onboarding_mode=True)
 
 
-@router.message(CommandStart(deep_link="buy"))
-async def handle_start_buy(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    """Deep link from payment reminder push — go straight to Stars invoice."""
+async def _register_user(message: Message, source: str | None = None) -> dict:
+    """Register user on backend (idempotent). Returns result dict or empty on error."""
     user = message.from_user
-
-    # Deduplicate rapid /start messages (Telegram client may send two)
-    data = await state.get_data()
-    last_start_date = data.get("_last_start_date")
-    if last_start_date and (message.date - last_start_date) < timedelta(seconds=5):
-        return
-    await state.update_data(_last_start_date=message.date)
-
-    # Регистрация (idempotent)
-    result = {}
     try:
-        result = await backend.register_user(
+        return await backend.register_user(
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name,
             last_name=user.last_name,
-            source="buy",
+            source=source,
         )
     except Exception as e:
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
+        return {}
 
-    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "buy", "source": "buy", "is_new_user": result.get("created", True)})
 
-    # Check if user is in post-onboarding paywall scenario
+async def _check_onboarding_paywall(message: Message, state: FSMContext) -> bool:
+    """Check if user completed onboarding but hasn't purchased. Returns True if paywall shown."""
     try:
-        user_data = await backend.get_user(telegram_id=user.id)
+        user_data = await backend.get_user(telegram_id=message.from_user.id)
         user_info = user_data.get("user", {})
         if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
-            await _send_onboarding_paywall(message, user.id, state)
-            return
+            await _send_onboarding_paywall(message, message.from_user.id, state)
+            return True
     except Exception:
         pass
+    return False
+
+
+async def _dedup_start(message: Message, state: FSMContext) -> bool:
+    """Returns True if this is a duplicate /start within 5 seconds (should be skipped)."""
+    data = await state.get_data()
+    last_start_date = data.get("_last_start_date")
+    if last_start_date and (message.date - last_start_date) < timedelta(seconds=5):
+        return True
+    await state.update_data(_last_start_date=message.date)
+    return False
+
+
+@router.message(CommandStart())
+async def handle_start(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    """Single /start handler — routes by deep link argument value."""
+    user = message.from_user
+    deep_link = _parse_deep_link(message)
+    logger.info(f"handle_start: user={user.id}, deep_link={deep_link!r}")
+
+    if await _dedup_start(message, state):
+        logger.info(f"handle_start SKIPPED (dedup): user={user.id}")
+        return
+
+    if deep_link == "upload_photo":
+        await _handle_start_upload_photo(message, state, analytics)
+    elif deep_link == "buy":
+        await _handle_start_buy(message, state, analytics)
+    else:
+        await _handle_start_generic(message, state, analytics, deep_link)
+
+
+async def _handle_start_upload_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    """Deep link: upload_photo — go straight to photo upload for returning users."""
+    result = await _register_user(message, source="upload_photo")
+
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
+        "deep_link": "upload_photo", "source": "upload_photo",
+    })
+
+    # New user — show full welcome instead of jumping to upload
+    is_new = result.get("user", {}).get("is_new", False)
+    if is_new:
+        await state.clear()
+        return await _show_welcome(message)
+
+    if await _check_onboarding_paywall(message, state):
+        return
+
+    await _show_upload_photo_prompt(message, state)
+
+
+async def _handle_start_buy(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    """Deep link: buy — go straight to payment."""
+    await _register_user(message, source="buy")
+
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
+        "deep_link": "buy", "source": "buy",
+    })
+
+    if await _check_onboarding_paywall(message, state):
+        return
 
     await message.answer(
         "Выбери способ оплаты 👇",
@@ -177,52 +195,22 @@ async def handle_start_buy(message: Message, state: FSMContext, analytics: Analy
     )
 
 
-@router.message(CommandStart())
-async def handle_start(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    user = message.from_user
+async def _handle_start_generic(message: Message, state: FSMContext, analytics: AnalyticsClient, deep_link: str | None):
+    """Default /start — welcome screen. Deep link (e.g. yd1) used as source for tracking."""
+    source = deep_link  # Any unknown deep link is treated as ad campaign source
 
-    # Deduplicate rapid /start messages (Telegram client may send two)
-    data = await state.get_data()
-    last_start_date = data.get("_last_start_date")
-    if last_start_date and (message.date - last_start_date) < timedelta(seconds=5):
-        logger.info(f"handle_start SKIPPED (dedup): user={user.id}")
-        return
-    await state.update_data(_last_start_date=message.date)
+    result = await _register_user(message, source=source)
+    generations = result.get("generations_remaining", "?")
 
-    # Извлекаем deep_link параметр из текста команды (формат: "/start yd1")
-    parts = (message.text or "").split(maxsplit=1)
-    deep_link_param = parts[1] if len(parts) > 1 else None
-    source = deep_link_param if deep_link_param not in (None, "upload_photo", "buy") else None
-
-    # Регистрация пользователя на бэкенде
-    reg_data = {}
-    try:
-        reg_data = await backend.register_user(
-            telegram_id=user.id,
-            username=user.username,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            source=source,
-        )
-        generations = reg_data.get("generations_remaining", "?")
-    except Exception as e:
-        logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
-        generations = "?"
-
-    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": deep_link_param or "none", "source": source, "is_new_user": reg_data.get("created", True)})
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
+        "deep_link": deep_link or "none", "source": source,
+    })
 
     # Clear any stale FSM state (e.g. onboarding_paywall) so buttons work
     await state.clear()
 
-    # Check if user completed onboarding but hasn't purchased — show paywall
-    try:
-        user_data = await backend.get_user(telegram_id=user.id)
-        user_info = user_data.get("user", {})
-        if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
-            await _send_onboarding_paywall(message, user.id, state)
-            return
-    except Exception:
-        pass
+    if await _check_onboarding_paywall(message, state):
+        return
 
     await _show_welcome(message)
 
