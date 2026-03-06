@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 from aiogram import Router
@@ -77,6 +78,13 @@ async def handle_start_upload_photo(message: Message, state: FSMContext, analyti
     """Deep link from onboarding reminder push — go straight to photo upload."""
     user = message.from_user
 
+    # Deduplicate rapid /start messages (Telegram client may send two)
+    data = await state.get_data()
+    last_start_date = data.get("_last_start_date")
+    if last_start_date and (message.date - last_start_date) < timedelta(seconds=5):
+        return
+    await state.update_data(_last_start_date=message.date)
+
     # Регистрация (idempotent)
     result = {}
     try:
@@ -131,6 +139,13 @@ async def handle_start_buy(message: Message, state: FSMContext, analytics: Analy
     """Deep link from payment reminder push — go straight to Stars invoice."""
     user = message.from_user
 
+    # Deduplicate rapid /start messages (Telegram client may send two)
+    data = await state.get_data()
+    last_start_date = data.get("_last_start_date")
+    if last_start_date and (message.date - last_start_date) < timedelta(seconds=5):
+        return
+    await state.update_data(_last_start_date=message.date)
+
     # Регистрация (idempotent)
     result = {}
     try:
@@ -165,6 +180,14 @@ async def handle_start_buy(message: Message, state: FSMContext, analytics: Analy
 @router.message(CommandStart())
 async def handle_start(message: Message, state: FSMContext, analytics: AnalyticsClient):
     user = message.from_user
+
+    # Deduplicate rapid /start messages (Telegram client may send two)
+    data = await state.get_data()
+    last_start_date = data.get("_last_start_date")
+    if last_start_date and (message.date - last_start_date) < timedelta(seconds=5):
+        logger.info(f"handle_start SKIPPED (dedup): user={user.id}")
+        return
+    await state.update_data(_last_start_date=message.date)
 
     # Извлекаем deep_link параметр из текста команды (формат: "/start yd1")
     parts = (message.text or "").split(maxsplit=1)
