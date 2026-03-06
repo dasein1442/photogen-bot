@@ -162,60 +162,6 @@ async def handle_start_buy(message: Message, state: FSMContext, analytics: Analy
     )
 
 
-@router.message(CommandStart(deep_link="yd1"))
-async def handle_start_yd1(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    """Deep link from Yandex Direct ad — register with upload_photo source and prompt for selfie."""
-    user = message.from_user
-
-    # Регистрация (idempotent)
-    result = {}
-    try:
-        result = await backend.register_user(
-            telegram_id=user.id,
-            username=user.username,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            source="upload_photo",
-        )
-    except Exception as e:
-        logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
-
-    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={"deep_link": "yd1", "source": "upload_photo", "is_new_user": result.get("created", True)})
-
-    # Clear any stale FSM state
-    await state.clear()
-
-    # Check if user completed onboarding but hasn't purchased — show paywall
-    try:
-        user_data = await backend.get_user(telegram_id=user.id)
-        user_info = user_data.get("user", {})
-        if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
-            await _send_onboarding_paywall(message, user.id, state)
-            return
-    except Exception:
-        pass
-
-    yd1_welcome_text = (
-        "📸 <b>Выбери хорошее селфи</b> и отправь его мне!\n\n"
-        "Нейросеть создаст из него <b>реалистичные фотосессии</b> — "
-        "на яхте, в деловом образе, на обложке журнала и не только ✨\n\n"
-        "💡 Лучше обычное селфи с хорошим светом — без фильтров и других людей.\n\n"
-        "🔒 Фото обрабатывается только нейросетью и не сохраняется — всё полностью приватно."
-    )
-
-    if TRY_NOW_IMAGE_PATH.exists():
-        await message.answer_photo(
-            photo=FSInputFile(str(TRY_NOW_IMAGE_PATH)),
-            caption=yd1_welcome_text,
-            parse_mode="HTML",
-        )
-    else:
-        await message.answer(yd1_welcome_text, parse_mode="HTML")
-
-    await state.set_state(PhotoUploadStates.waiting_for_main_photo)
-    await state.update_data(onboarding_mode=True)
-
-
 @router.message(CommandStart())
 async def handle_start(message: Message, state: FSMContext, analytics: AnalyticsClient):
     user = message.from_user
@@ -223,7 +169,7 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
     # Извлекаем deep_link параметр из текста команды (формат: "/start yd1")
     parts = (message.text or "").split(maxsplit=1)
     deep_link_param = parts[1] if len(parts) > 1 else None
-    source = deep_link_param if deep_link_param not in (None, "upload_photo", "buy", "yd1") else None
+    source = deep_link_param if deep_link_param not in (None, "upload_photo", "buy") else None
 
     # Регистрация пользователя на бэкенде
     reg_data = {}
