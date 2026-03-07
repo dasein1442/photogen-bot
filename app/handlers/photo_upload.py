@@ -184,6 +184,12 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
         if analytics:
             await analytics.track("onboarding_result_delivered", user_id=str(telegram_id), properties={"task_id": task_id})
 
+        # Mark onboarding completed and start paywall nudge notifications
+        try:
+            await backend.notify_onboarding_paywall(telegram_id)
+        except Exception as e:
+            logger.error(f"Failed to mark onboarding completed: {e}")
+
         if send_result.failed > 0:
             try:
                 await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
@@ -291,11 +297,6 @@ async def handle_onboarding_pay(callback: CallbackQuery, state: FSMContext, anal
         reply_markup=get_payment_method_keyboard("onboarding"),
     )
 
-    # Notify backend (fires push notifications for nudging)
-    try:
-        await backend.notify_onboarding_paywall(callback.from_user.id)
-    except Exception as e:
-        logger.error(f"Ошибка уведомления об онбординг-пейволле: {e}")
 
     await state.set_state(PhotoUploadStates.onboarding_paywall)
     await callback.answer()
