@@ -184,28 +184,18 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
         if analytics:
             await analytics.track("onboarding_result_delivered", user_id=str(telegram_id), properties={"task_id": task_id})
 
-        # Mark onboarding completed and start paywall nudge notifications
-        try:
-            await backend.notify_onboarding_paywall(telegram_id)
-        except Exception as e:
-            logger.error(f"Failed to mark onboarding completed: {e}")
-
         if send_result.failed > 0:
             try:
                 await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
             except Exception as re:
                 logger.error(f"[tg={telegram_id}] onboarding: refund failed: {re}", exc_info=True)
 
-        # Show result message with like/dislike feedback buttons
+        # Show result message with "next" button
         await message.answer(
             "😍 Смотри, какая ты получилась!\n\n"
-            "Это только проба — дальше будет ещё круче!\n\n"
-            "Как тебе результат?",
+            "Это только проба — дальше будет ещё круче!",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="👍 Нравится", callback_data="onboarding_feedback:like"),
-                    InlineKeyboardButton(text="👎 Не нравится", callback_data="onboarding_feedback:dislike"),
-                ],
+                [InlineKeyboardButton(text="Перейти дальше 🚀", callback_data="onboarding_next")],
             ]),
         )
 
@@ -255,38 +245,8 @@ async def handle_upload_profile_photo(callback: CallbackQuery, state: FSMContext
     await callback.answer()
 
 
-@router.callback_query(lambda callback: callback.data and callback.data.startswith("onboarding_feedback:"))
-async def handle_onboarding_feedback(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Save like/dislike feedback on onboarding photo, then proceed to paywall."""
-    feedback = callback.data.split(":")[1]  # "like" or "dislike"
-    telegram_id = callback.from_user.id
-
-    # Save feedback to backend
-    try:
-        await backend.save_onboarding_photo_feedback(telegram_id, feedback)
-    except Exception as e:
-        logger.error(f"Failed to save onboarding feedback: {e}")
-
-    await analytics.track("onboarding_photo_feedback", user_id=str(telegram_id), properties={"feedback": feedback})
-
-    # Update button to show selected choice
-    if feedback == "like":
-        selected_text = "👍 Нравится ✓"
-    else:
-        selected_text = "👎 Не нравится ✓"
-
-    await callback.message.edit_reply_markup(
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=selected_text, callback_data="noop")],
-        ]),
-    )
-
-    # Proceed to paywall (same logic as onboarding_next)
-    await _show_onboarding_paywall(callback, analytics)
-    await callback.answer()
-
-
-async def _show_onboarding_paywall(callback: CallbackQuery, analytics: AnalyticsClient):
+@router.callback_query(lambda callback: callback.data == "onboarding_next")
+async def handle_onboarding_next(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
     """Show welcome_price promo image with discount text and payment button."""
     await analytics.track("onboarding_next_clicked", user_id=str(callback.from_user.id))
 
@@ -318,11 +278,6 @@ async def _show_onboarding_paywall(callback: CallbackQuery, analytics: Analytics
             reply_markup=payment_keyboard,
         )
 
-
-@router.callback_query(lambda callback: callback.data == "onboarding_next")
-async def handle_onboarding_next(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Legacy handler for old 'Перейти дальше' button — redirects to paywall."""
-    await _show_onboarding_paywall(callback, analytics)
     await callback.answer()
 
 
@@ -336,6 +291,11 @@ async def handle_onboarding_pay(callback: CallbackQuery, state: FSMContext, anal
         reply_markup=get_payment_method_keyboard("onboarding"),
     )
 
+    # Notify backend (fires push notifications for nudging)
+    try:
+        await backend.notify_onboarding_paywall(callback.from_user.id)
+    except Exception as e:
+        logger.error(f"Ошибка уведомления об онбординг-пейволле: {e}")
 
     await state.set_state(PhotoUploadStates.onboarding_paywall)
     await callback.answer()
