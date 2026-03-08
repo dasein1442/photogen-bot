@@ -250,6 +250,16 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def save_onboarding_photo_feedback(self, telegram_id: int, feedback: str) -> dict:
+        """POST /payments/onboarding-photo-feedback — save like/dislike feedback on onboarding photo."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "feedback": feedback}
+            async with session.post(
+                f"{self.base_url}/payments/onboarding-photo-feedback", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
     async def notify_onboarding_paywall(self, telegram_id: int) -> dict:
         """POST /payments/onboarding-paywall-shown — notify backend about post-onboarding paywall."""
         async with aiohttp.ClientSession() as session:
