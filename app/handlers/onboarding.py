@@ -147,6 +147,8 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
         await _handle_start_upload_photo(message, state, analytics)
     elif deep_link == "buy":
         await _handle_start_buy(message, state, analytics)
+    elif deep_link == "discount":
+        await _handle_start_discount(message, state, analytics)
     else:
         await _handle_start_generic(message, state, analytics, deep_link)
 
@@ -184,6 +186,22 @@ async def _handle_start_buy(message: Message, state: FSMContext, analytics: Anal
 
     from app.handlers.payment import start_payment_flow
     await start_payment_flow(message, message.from_user.id, analytics=analytics)
+
+
+async def _handle_start_discount(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    """Deep link: discount — special offer 20 generations for 289₽."""
+    await _register_user(message, source="discount")
+
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
+        "deep_link": "discount", "source": "discount",
+    })
+
+    from app.handlers.payment import _create_and_send_payment
+    await _create_and_send_payment(
+        message, message.from_user.id,
+        generations=20, rubles=289,
+        analytics=analytics, source="discount",
+    )
 
 
 async def _handle_start_generic(message: Message, state: FSMContext, analytics: AnalyticsClient, deep_link: str | None):
