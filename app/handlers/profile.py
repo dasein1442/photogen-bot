@@ -84,9 +84,5 @@ async def handle_set_new_photo(message: Message, state: FSMContext):
 
 @router.message(F.text == "Приобрести генерации")
 async def handle_buy_generations(message: Message, analytics: AnalyticsClient):
-    from app.keyboards.payment import get_payment_method_keyboard
-    await analytics.track("paywall_shown", user_id=str(message.from_user.id), properties={"source": "profile_buy"})
-    await message.answer(
-        "Выбери способ оплаты 👇",
-        reply_markup=get_payment_method_keyboard("menu"),
-    )
+    from app.handlers.payment import start_payment_flow
+    await start_payment_flow(message, message.from_user.id, analytics=analytics)

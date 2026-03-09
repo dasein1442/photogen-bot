@@ -9,7 +9,6 @@ from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 
 from app.api.backend import backend
 from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard
-from app.keyboards.payment import get_payment_method_keyboard
 from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 
@@ -68,15 +67,9 @@ async def _show_welcome(message: Message):
 
 
 async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FSMContext):
-    """Show paywall for user who completed onboarding but hasn't purchased. Shows payment method selection."""
-    await message.answer(
-        "Открой доступ к 70+ стилям!\n\n"
-        "Деловая съёмка, пляж, Pinterest, Vogue и многое другое.\n\n"
-        "Выбери способ оплаты 👇",
-        reply_markup=get_payment_method_keyboard("onboarding"),
-    )
-
-    await state.set_state(PhotoUploadStates.onboarding_paywall)
+    """Show paywall for user who completed onboarding but hasn't purchased. Go directly to payment."""
+    from app.handlers.payment import start_onboarding_payment
+    await start_onboarding_payment(message, telegram_id, state)
 
 
 async def _show_upload_photo_prompt(message: Message, state: FSMContext):
@@ -189,10 +182,8 @@ async def _handle_start_buy(message: Message, state: FSMContext, analytics: Anal
     if await _check_onboarding_paywall(message, state):
         return
 
-    await message.answer(
-        "Выбери способ оплаты 👇",
-        reply_markup=get_payment_method_keyboard("menu"),
-    )
+    from app.handlers.payment import start_payment_flow
+    await start_payment_flow(message, message.from_user.id, analytics=analytics)
 
 
 async def _handle_start_generic(message: Message, state: FSMContext, analytics: AnalyticsClient, deep_link: str | None):

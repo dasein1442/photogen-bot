@@ -9,7 +9,7 @@ from app.api.backend import backend
 from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
-from app.keyboards.payment import get_buy_keyboard, get_payment_method_keyboard
+from app.keyboards.payment import get_buy_keyboard
 from app.handlers.generation import _format_validation_errors, _do_generation
 from app.services.tg_sender import download_photo, send_photos
 from app.handlers.random_photo import _do_random_generation
@@ -104,14 +104,6 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
             "инструмент, и генерируй шикарные фотографии 👇",
             reply_markup=get_main_menu_keyboard(),
         )
-
-
-def _get_onboarding_buy_keyboard() -> InlineKeyboardMarkup:
-    """Inline keyboard with payment method selection for onboarding paywall."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Оплата звёздами ⭐️", callback_data="pm_stars_onboarding")],
-        [InlineKeyboardButton(text="Картой / СБП / SberPay 💳", callback_data="pm_sbp_onboarding")],
-    ])
 
 
 async def _do_onboarding_generation(message: Message, state: FSMContext | None = None, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
@@ -328,14 +320,9 @@ async def handle_onboarding_next(callback: CallbackQuery, state: FSMContext, ana
 
 @router.callback_query(lambda callback: callback.data == "onboarding_pay")
 async def handle_onboarding_pay(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Show payment method selection from the onboarding promo."""
+    """Go directly to payment from the onboarding promo."""
     await analytics.track("onboarding_pay_clicked", user_id=str(callback.from_user.id))
 
-    await callback.message.answer(
-        "Выбери способ оплаты 👇",
-        reply_markup=get_payment_method_keyboard("onboarding"),
-    )
-
-
-    await state.set_state(PhotoUploadStates.onboarding_paywall)
+    from app.handlers.payment import start_onboarding_payment
+    await start_onboarding_payment(callback.message, callback.from_user.id, state, analytics)
     await callback.answer()

@@ -3,10 +3,9 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from app.keyboards.payment import get_payment_method_keyboard
 from app.states.photo import PhotoUploadStates
 
 logger = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ class PaywallGuardMiddleware(BaseMiddleware):
         except Exception as e:
             logger.warning(f"PaywallGuard: не удалось проверить has_purchased: {e}")
 
-        # Allow pre_checkout and successful_payment through
+        # Allow successful_payment through (legacy safety)
         if isinstance(event, Message):
             if event.successful_payment:
                 return await handler(event, data)
@@ -53,26 +52,27 @@ class PaywallGuardMiddleware(BaseMiddleware):
         if isinstance(event, CallbackQuery):
             if event.data and (
                 event.data == "buy_generations"
-                or event.data.startswith("pm_stars_")
-                or event.data.startswith("pm_sbp_")
                 or event.data.startswith("buy_tier_")
-                or event.data.startswith("sbp_tier_")
                 or event.data.startswith("check_yookassa_")
+                or event.data == "onboarding_pay"
             ):
                 return await handler(event, data)
 
-        # Block everything else — show payment method selection
+        # Block everything else — show buy button
         if isinstance(event, Message):
             target = event
         else:
             target = event.message
             await event.answer()
 
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Перейти к оплате 💳", callback_data="onboarding_pay")],
+        ])
+
         await target.answer(
             "Открой доступ к 70+ стилям!\n\n"
-            "Деловая съёмка, пляж, Pinterest, Vogue и многое другое.\n\n"
-            "Выбери способ оплаты 👇",
-            reply_markup=get_payment_method_keyboard("onboarding"),
+            "Деловая съёмка, пляж, Pinterest, Vogue и многое другое.",
+            reply_markup=keyboard,
         )
 
         return  # do NOT call the handler

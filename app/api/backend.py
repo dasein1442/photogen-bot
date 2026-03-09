@@ -198,20 +198,6 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def add_credits(self, telegram_id: int, generations: int, comment: str = "") -> dict:
-        """POST /payments/add-credits — добавить генерации после оплаты."""
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "telegram_id": telegram_id,
-                "generations": generations,
-                "comment": comment,
-            }
-            async with session.post(
-                f"{self.base_url}/payments/add-credits", json=payload, headers=self._headers()
-            ) as resp:
-                resp.raise_for_status()
-                return await resp.json()
-
     async def create_yookassa_payment(self, telegram_id: int, generations: int, amount_rubles: int) -> dict:
         """POST /payments/yookassa/create — создать платёж ЮКасса."""
         async with aiohttp.ClientSession() as session:

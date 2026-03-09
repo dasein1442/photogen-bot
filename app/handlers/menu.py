@@ -5,7 +5,6 @@ from aiogram.types import Message
 
 from app.api.backend import backend
 from app.keyboards.common import get_main_menu_keyboard
-from app.keyboards.payment import get_payment_method_keyboard
 from app.services.analytics_sdk import AnalyticsClient
 
 router = Router()
@@ -26,12 +25,8 @@ async def handle_menu_command(message: Message, state: FSMContext, analytics: An
         return
 
     if not user_info.get("has_purchased"):
-        await message.answer(
-            "Открой доступ к 70+ стилям!\n\n"
-            "Деловая съёмка, пляж, Pinterest, Vogue и многое другое.\n\n"
-            "Выбери способ оплаты 👇",
-            reply_markup=get_payment_method_keyboard("onboarding"),
-        )
+        from app.handlers.payment import start_onboarding_payment
+        await start_onboarding_payment(message, message.from_user.id, state)
         return
 
     await state.clear()
