@@ -74,7 +74,7 @@ async def handle_buy_tier(callback: CallbackQuery, analytics: AnalyticsClient):
     await callback.message.bot.send_invoice(
         chat_id=callback.message.chat.id,
         title=f"{generations} генераций",
-        description=f"Покупка {generations} генераций для создания AI-фото",
+        description=f"Доступ в бота и {generations} генераций (примерно {generations} фотографий)",
         payload=f"buy_{generations}_{telegram_id}",
         currency="XTR",
         prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
@@ -115,7 +115,7 @@ async def handle_pay_method_stars(callback: CallbackQuery, analytics: AnalyticsC
         await callback.message.bot.send_invoice(
             chat_id=callback.message.chat.id,
             title=f"{generations} генераций",
-            description=f"Покупка {generations} генераций для создания AI-фото",
+            description=f"Доступ в бота и {generations} генераций (примерно {generations} фотографий)",
             payload=f"buy_{generations}_{telegram_id}",
             currency="XTR",
             prices=[LabeledPrice(label=f"{generations} генераций", amount=stars)],
@@ -181,12 +181,19 @@ async def handle_pay_method_sbp(callback: CallbackQuery, analytics: AnalyticsCli
         ])
 
         await callback.message.answer(
-            f"💳 Оплата: {rubles} ₽ за {gen} генераций\n\n"
-            f"Доступны: банковская карта, СБП, SberPay\n\n"
-            f"1. Нажми «Оплатить» — откроется страница оплаты\n"
-            f"2. Выбери удобный способ и оплати\n"
-            f"3. Вернись сюда и нажми «Проверить оплату»",
+            f"Оплата {rubles}₽\n\n"
+            f"Вы оплачиваете: «Доступ в бота и {gen} генераций "
+            f"(примерно {gen} фотографий)».\n\n"
+            f"Мы не имеем доступа к вашим личным и платежным данным. "
+            f"Переходя к оплате, вы подтверждаете ознакомление и согласие с нашим "
+            f'<a href="https://kadritsa.ru/pages/terms.html">пользовательским соглашением</a> и '
+            f'<a href="https://kadritsa.ru/pages/privacy.html">политикой конфиденциальности</a>.\n\n'
+            f"Генерации — валюта нашего сервиса.\n"
+            f"Генерации можно тратить на любой вид генерации.\n\n"
+            f"В случае возникновения проблем обращайтесь в "
+            f'<a href="https://t.me/IIUSNO">чат поддержки</a>.',
             reply_markup=keyboard,
+            parse_mode="HTML",
         )
 
         if analytics:
@@ -250,12 +257,19 @@ async def handle_sbp_tier(callback: CallbackQuery, analytics: AnalyticsClient):
     ])
 
     await callback.message.answer(
-        f"💳 Оплата: {rubles} ₽\n\n"
-        f"Доступны: банковская карта, СБП, SberPay\n\n"
-        f"1. Нажми «Оплатить» — откроется страница оплаты\n"
-        f"2. Выбери удобный способ и оплати\n"
-        f"3. Вернись сюда и нажми «Проверить оплату»",
+        f"Оплата {rubles}₽\n\n"
+        f"Вы оплачиваете: «Доступ в бота и {generations} генераций "
+        f"(примерно {generations} фотографий)».\n\n"
+        f"Мы не имеем доступа к вашим личным и платежным данным. "
+        f"Переходя к оплате, вы подтверждаете ознакомление и согласие с нашим "
+        f'<a href="https://kadritsa.ru/pages/terms.html">пользовательским соглашением</a> и '
+        f'<a href="https://kadritsa.ru/pages/privacy.html">политикой конфиденциальности</a>.\n\n'
+        f"Генерации — валюта нашего сервиса.\n"
+        f"Генерации можно тратить на любой вид генерации.\n\n"
+        f"В случае возникновения проблем обращайтесь в "
+        f'<a href="https://t.me/IIUSNO">чат поддержки</a>.',
         reply_markup=keyboard,
+        parse_mode="HTML",
     )
 
     if analytics:
