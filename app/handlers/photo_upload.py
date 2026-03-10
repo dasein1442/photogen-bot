@@ -289,7 +289,6 @@ async def handle_onboarding_feedback(callback: CallbackQuery, state: FSMContext,
             [InlineKeyboardButton(text=label, callback_data=f"onboarding_dislike_reason:{value}")]
             for label, value in DISLIKE_REASONS
         ]
-        reason_buttons.append([InlineKeyboardButton(text="⏭ Пропустить", callback_data="onboarding_dislike_reason:skip")])
         await callback.message.answer(
             "Что именно не понравилось?",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=reason_buttons),
@@ -300,15 +299,14 @@ async def handle_onboarding_feedback(callback: CallbackQuery, state: FSMContext,
 
 @router.callback_query(lambda callback: callback.data and callback.data.startswith("onboarding_dislike_reason:"))
 async def handle_onboarding_dislike_reason(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Save dislike reason (or skip), then proceed to paywall."""
-    reason = callback.data.split(":")[1]  # "face_mismatch", "unnatural", "style_dislike", or "skip"
+    """Save dislike reason, then proceed to paywall."""
+    reason = callback.data.split(":")[1]  # "face_mismatch", "unnatural", "style_dislike"
     telegram_id = callback.from_user.id
 
-    if reason != "skip":
-        try:
-            await backend.save_onboarding_feedback_reason(telegram_id, reason)
-        except Exception as e:
-            logger.error(f"Failed to save onboarding dislike reason: {e}")
+    try:
+        await backend.save_onboarding_feedback_reason(telegram_id, reason)
+    except Exception as e:
+        logger.error(f"Failed to save onboarding dislike reason: {e}")
 
     await analytics.track(
         "onboarding_dislike_reason",
@@ -317,11 +315,8 @@ async def handle_onboarding_dislike_reason(callback: CallbackQuery, state: FSMCo
     )
 
     # Collapse reason buttons to show selected choice
-    if reason == "skip":
-        selected_text = "⏭ Пропустить ✓"
-    else:
-        label = next((label for label, value in DISLIKE_REASONS if value == reason), reason)
-        selected_text = f"{label} ✓"
+    label = next((label for label, value in DISLIKE_REASONS if value == reason), reason)
+    selected_text = f"{label} ✓"
 
     await callback.message.edit_reply_markup(
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
