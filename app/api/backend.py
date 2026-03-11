@@ -236,22 +236,22 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def save_onboarding_photo_feedback(self, telegram_id: int, feedback: str) -> dict:
-        """POST /payments/onboarding-photo-feedback — save like/dislike feedback on onboarding photo."""
+    async def save_photo_feedback(self, telegram_id: int, generation_task_id: int, feedback: str) -> dict:
+        """POST /payments/photo-feedback — save like/dislike feedback on a generation."""
         async with aiohttp.ClientSession() as session:
-            payload = {"telegram_id": telegram_id, "feedback": feedback}
+            payload = {"telegram_id": telegram_id, "generation_task_id": generation_task_id, "feedback": feedback}
             async with session.post(
-                f"{self.base_url}/payments/onboarding-photo-feedback", json=payload, headers=self._headers()
+                f"{self.base_url}/payments/photo-feedback", json=payload, headers=self._headers()
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def save_onboarding_feedback_reason(self, telegram_id: int, reason: str) -> dict:
-        """POST /payments/onboarding-photo-feedback-reason — save dislike reason."""
+    async def save_photo_feedback_reason(self, telegram_id: int, generation_task_id: int, reason: str) -> dict:
+        """POST /payments/photo-feedback-reason — save dislike reason."""
         async with aiohttp.ClientSession() as session:
-            payload = {"telegram_id": telegram_id, "reason": reason}
+            payload = {"telegram_id": telegram_id, "generation_task_id": generation_task_id, "reason": reason}
             async with session.post(
-                f"{self.base_url}/payments/onboarding-photo-feedback-reason", json=payload, headers=self._headers()
+                f"{self.base_url}/payments/photo-feedback-reason", json=payload, headers=self._headers()
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()

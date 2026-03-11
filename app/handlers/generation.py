@@ -3,7 +3,7 @@ import logging
 import time
 
 from aiogram import Router
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -221,8 +221,13 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
 
         await message.answer(
             "😍 Смотри, какая красота!\n\n"
-            "Хочешь ещё? Выбери фотосессию в меню или отправь новое фото 📸",
-            reply_markup=get_main_menu_keyboard(),
+            "Как тебе результат?",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="👍 Нравится", callback_data=f"photo_feedback:ps:{task_id}:like"),
+                    InlineKeyboardButton(text="👎 Не нравится", callback_data=f"photo_feedback:ps:{task_id}:dislike"),
+                ],
+            ]),
         )
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")

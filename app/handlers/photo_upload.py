@@ -195,8 +195,8 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
             "Как тебе результат?",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="👍 Нравится", callback_data="onboarding_feedback:like"),
-                    InlineKeyboardButton(text="👎 Не нравится", callback_data="onboarding_feedback:dislike"),
+                    InlineKeyboardButton(text="👍 Нравится", callback_data=f"photo_feedback:ob:{task_id}:like"),
+                    InlineKeyboardButton(text="👎 Не нравится", callback_data=f"photo_feedback:ob:{task_id}:dislike"),
                 ],
             ]),
         )
@@ -254,22 +254,29 @@ DISLIKE_REASONS = [
 ]
 
 
-@router.callback_query(lambda callback: callback.data and callback.data.startswith("onboarding_feedback:"))
-async def handle_onboarding_feedback(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Save like/dislike feedback on onboarding photo.
-    Like → proceed to paywall.
-    Dislike → save immediately, then show reason buttons.
+@router.callback_query(lambda callback: callback.data and callback.data.startswith("photo_feedback:"))
+async def handle_photo_feedback(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
+    """Save like/dislike feedback on a generation task.
+    Callback data format: photo_feedback:{context}:{task_id}:{like|dislike}
+    context: "ob" (onboarding) or "ps" (photoshoot)
     """
-    feedback = callback.data.split(":")[1]  # "like" or "dislike"
+    parts = callback.data.split(":")
+    context = parts[1]   # "ob" or "ps"
+    task_id = int(parts[2])
+    feedback = parts[3]  # "like" or "dislike"
     telegram_id = callback.from_user.id
 
     # Save feedback immediately (before showing reason buttons for dislike)
     try:
-        await backend.save_onboarding_photo_feedback(telegram_id, feedback)
+        await backend.save_photo_feedback(telegram_id, task_id, feedback)
     except Exception as e:
-        logger.error(f"Failed to save onboarding feedback: {e}")
+        logger.error(f"Failed to save photo feedback: {e}")
 
-    await analytics.track("onboarding_photo_feedback", user_id=str(telegram_id), properties={"feedback": feedback})
+    await analytics.track(
+        "photo_feedback",
+        user_id=str(telegram_id),
+        properties={"feedback": feedback, "generation_task_id": task_id, "context": context},
+    )
 
     if feedback == "like":
         await callback.message.edit_reply_markup(
@@ -277,7 +284,13 @@ async def handle_onboarding_feedback(callback: CallbackQuery, state: FSMContext,
                 [InlineKeyboardButton(text="👍 Нравится ✓", callback_data="noop")],
             ]),
         )
-        await _show_onboarding_paywall(callback, analytics)
+        if context == "ob":
+            await _show_onboarding_paywall(callback, analytics)
+        else:
+            await callback.message.answer(
+                "Хочешь ещё? Выбери фотосессию в меню или отправь новое фото 📸",
+                reply_markup=get_main_menu_keyboard(),
+            )
     else:
         # Dislike — update button and show reason selection
         await callback.message.edit_reply_markup(
@@ -286,7 +299,7 @@ async def handle_onboarding_feedback(callback: CallbackQuery, state: FSMContext,
             ]),
         )
         reason_buttons = [
-            [InlineKeyboardButton(text=label, callback_data=f"onboarding_dislike_reason:{value}")]
+            [InlineKeyboardButton(text=label, callback_data=f"dislike_reason:{context}:{task_id}:{value}")]
             for label, value in DISLIKE_REASONS
         ]
         await callback.message.answer(
@@ -297,21 +310,26 @@ async def handle_onboarding_feedback(callback: CallbackQuery, state: FSMContext,
     await callback.answer()
 
 
-@router.callback_query(lambda callback: callback.data and callback.data.startswith("onboarding_dislike_reason:"))
-async def handle_onboarding_dislike_reason(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Save dislike reason, then proceed to paywall."""
-    reason = callback.data.split(":")[1]  # "face_mismatch", "unnatural", "style_dislike"
+@router.callback_query(lambda callback: callback.data and callback.data.startswith("dislike_reason:"))
+async def handle_dislike_reason(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
+    """Save dislike reason, then show paywall (onboarding) or menu (photoshoot).
+    Callback data format: dislike_reason:{context}:{task_id}:{reason}
+    """
+    parts = callback.data.split(":")
+    context = parts[1]   # "ob" or "ps"
+    task_id = int(parts[2])
+    reason = parts[3]    # "face_mismatch", "unnatural", "style_dislike"
     telegram_id = callback.from_user.id
 
     try:
-        await backend.save_onboarding_feedback_reason(telegram_id, reason)
+        await backend.save_photo_feedback_reason(telegram_id, task_id, reason)
     except Exception as e:
-        logger.error(f"Failed to save onboarding dislike reason: {e}")
+        logger.error(f"Failed to save dislike reason: {e}")
 
     await analytics.track(
-        "onboarding_dislike_reason",
+        "dislike_reason",
         user_id=str(telegram_id),
-        properties={"reason": reason},
+        properties={"reason": reason, "generation_task_id": task_id, "context": context},
     )
 
     # Collapse reason buttons to show selected choice
@@ -324,7 +342,14 @@ async def handle_onboarding_dislike_reason(callback: CallbackQuery, state: FSMCo
         ]),
     )
 
-    await _show_onboarding_paywall(callback, analytics)
+    if context == "ob":
+        await _show_onboarding_paywall(callback, analytics)
+    else:
+        await callback.message.answer(
+            "Спасибо за отзыв! Мы учтём это 🙏\n\n"
+            "Хочешь попробовать другую фотосессию?",
+            reply_markup=get_main_menu_keyboard(),
+        )
     await callback.answer()
 
 
