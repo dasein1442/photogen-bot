@@ -155,7 +155,7 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
 
 async def _handle_start_upload_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Deep link: upload_photo — go straight to photo upload for returning users."""
-    result = await _register_user(message, source="upload_photo")
+    result = await _register_user(message, source=None)
 
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
         "deep_link": "upload_photo", "source": "upload_photo",
@@ -175,7 +175,7 @@ async def _handle_start_upload_photo(message: Message, state: FSMContext, analyt
 
 async def _handle_start_buy(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Deep link: buy — go straight to payment."""
-    await _register_user(message, source="buy")
+    await _register_user(message, source=None)
 
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
         "deep_link": "buy", "source": "buy",
@@ -190,7 +190,7 @@ async def _handle_start_buy(message: Message, state: FSMContext, analytics: Anal
 
 async def _handle_start_discount(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Deep link: discount — special offer 20 generations for 289₽."""
-    await _register_user(message, source="discount")
+    await _register_user(message, source=None)
 
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
         "deep_link": "discount", "source": "discount",
