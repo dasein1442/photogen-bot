@@ -206,7 +206,9 @@ async def _handle_start_discount(message: Message, state: FSMContext, analytics:
 
 async def _handle_start_generic(message: Message, state: FSMContext, analytics: AnalyticsClient, deep_link: str | None):
     """Default /start — welcome screen. Deep link (e.g. yd1) used as source for tracking."""
-    source = deep_link  # Any unknown deep link is treated as ad campaign source
+    # Internal deep links are navigation actions, not traffic sources
+    _internal_links = {"photosessions", "photosession", "upload_photo", "buy", "discount"}
+    source = None if deep_link in _internal_links else deep_link
 
     result = await _register_user(message, source=source)
     generations = result.get("generations_remaining", "?")
