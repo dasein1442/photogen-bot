@@ -89,8 +89,8 @@ async def _show_upload_photo_prompt(message: Message, state: FSMContext):
     else:
         await message.answer(try_now_text)
 
+    await state.set_data({"onboarding_mode": True})
     await state.set_state(PhotoUploadStates.waiting_for_main_photo)
-    await state.update_data(onboarding_mode=True)
 
 
 async def _register_user(message: Message, source: str | None = None) -> dict:
@@ -271,7 +271,7 @@ async def handle_try_now(callback: CallbackQuery, state: FSMContext, analytics: 
             try_now_text,
         )
 
+    await state.set_data({"onboarding_mode": True})
     await state.set_state(PhotoUploadStates.waiting_for_main_photo)
-    await state.update_data(onboarding_mode=True)
 
     await callback.answer()

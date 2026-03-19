@@ -28,7 +28,7 @@ async def handle_random_photo(message: Message, state: FSMContext, analytics: An
     profile_photo_id = user_data.get("user", {}).get("profile_photo_id")
 
     if not profile_photo_id:
-        await state.update_data(random_mode=True)
+        await state.set_data({"random_mode": True})
         await state.set_state(PhotoUploadStates.waiting_for_main_photo)
 
         await message.answer(

@@ -52,7 +52,7 @@ async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext,
         await _do_generation(callback.message, photosession_id, callback.from_user.id, analytics=analytics)
     else:
         # Фото профиля нет — просим загрузить
-        await state.update_data(photosession_id=photosession_id)
+        await state.set_data({"photosession_id": photosession_id})
         await state.set_state(PhotoUploadStates.waiting_for_main_photo)
 
         await callback.message.answer(
