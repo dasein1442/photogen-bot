@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -97,13 +98,16 @@ async def _register_user(message: Message, source: str | None = None) -> dict:
     """Register user on backend (idempotent). Returns result dict or empty on error."""
     user = message.from_user
     try:
-        return await backend.register_user(
+        t0 = time.monotonic()
+        result = await backend.register_user(
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name,
             last_name=user.last_name,
             source=source,
         )
+        logger.info(f"[tg={user.id}] register_user took {time.monotonic() - t0:.2f}s")
+        return result
     except Exception as e:
         logger.error(f"Ошибка регистрации пользователя {user.id}: {e}")
         return {}
@@ -112,7 +116,9 @@ async def _register_user(message: Message, source: str | None = None) -> dict:
 async def _check_onboarding_paywall(message: Message, state: FSMContext) -> bool:
     """Check if user completed onboarding but hasn't purchased. Returns True if paywall shown."""
     try:
+        t0 = time.monotonic()
         user_data = await backend.get_user(telegram_id=message.from_user.id)
+        logger.info(f"[tg={message.from_user.id}] get_user took {time.monotonic() - t0:.2f}s")
         user_info = user_data.get("user", {})
         if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
             await _send_onboarding_paywall(message, message.from_user.id, state)
@@ -213,9 +219,11 @@ async def _handle_start_generic(message: Message, state: FSMContext, analytics: 
     result = await _register_user(message, source=source)
     generations = result.get("generations_remaining", "?")
 
+    t0 = time.monotonic()
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
         "deep_link": deep_link or "none", "source": source,
     })
+    logger.info(f"[tg={message.from_user.id}] analytics.track took {time.monotonic() - t0:.2f}s")
 
     # Clear any stale FSM state (e.g. onboarding_paywall) so buttons work
     await state.clear()
@@ -223,7 +231,9 @@ async def _handle_start_generic(message: Message, state: FSMContext, analytics: 
     if await _check_onboarding_paywall(message, state):
         return
 
+    t0 = time.monotonic()
     await _show_welcome(message)
+    logger.info(f"[tg={message.from_user.id}] _show_welcome took {time.monotonic() - t0:.2f}s")
 
 
 @router.callback_query(lambda callback: callback.data == "more_examples")
