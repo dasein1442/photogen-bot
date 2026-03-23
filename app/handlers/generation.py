@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.services.analytics_sdk import AnalyticsClient
+from app.services.generation_lock import acquire as lock_acquire, release as lock_release
 from app.services.tg_sender import download_photo, send_photos, SendResult
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
@@ -77,8 +78,19 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
     if telegram_id is None:
         telegram_id = message.from_user.id
 
+    if not lock_acquire(telegram_id):
+        await message.answer("⏳ Подожди — предыдущая генерация ещё в процессе.")
+        return
+
     await message.answer("⏳ Начинаю генерацию, подожди немного...")
 
+    try:
+        await _do_generation_inner(message, photosession_id, telegram_id, t_total, analytics)
+    finally:
+        lock_release(telegram_id)
+
+
+async def _do_generation_inner(message: Message, photosession_id: int, telegram_id: int, t_total: float, analytics: AnalyticsClient | None):
     # 1. Запуск генерации на бэкенде
     t0 = time.monotonic()
     try:
