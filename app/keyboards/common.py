@@ -5,7 +5,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Фотосессии")],
-            [KeyboardButton(text="Случайное фото"), KeyboardButton(text="По своему промту")],
+            [KeyboardButton(text="Случайное фото"), KeyboardButton(text="ИИ-фотошоп")],
             [KeyboardButton(text="Профиль"), KeyboardButton(text="Служба заботы")],
         ],
         resize_keyboard=True

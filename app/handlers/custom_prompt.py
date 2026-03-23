@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.message(F.text == "По своему промту")
+@router.message(F.text == "ИИ-фотошоп")
 async def handle_custom_prompt_button(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    """Пользователь нажал 'По своему промту' в главном меню."""
+    """Пользователь нажал 'ИИ-фотошоп' в главном меню."""
     try:
         user_data = await backend.get_user(telegram_id=message.from_user.id)
     except Exception as e:
@@ -69,7 +69,7 @@ async def handle_custom_prompt_text(message: Message, state: FSMContext, analyti
     prompt = message.text.strip()
 
     # Проверяем, что это не команда или кнопка меню
-    if prompt.startswith("/") or prompt in ("Фотосессии", "Случайное фото", "Профиль", "Служба заботы", "Назад", "По своему промту"):
+    if prompt.startswith("/") or prompt in ("Фотосессии", "Случайное фото", "Профиль", "Служба заботы", "Назад", "ИИ-фотошоп"):
         await state.clear()
         return  # пусть другой хэндлер обработает
 
