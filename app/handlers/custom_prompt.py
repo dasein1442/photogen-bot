@@ -24,7 +24,8 @@ async def handle_custom_prompt_button(message: Message, state: FSMContext, analy
     await state.set_state(PhotoUploadStates.waiting_for_photoshop_photo)
 
     await message.answer(
-        "📸 Отправь фото, которое хочешь отредактировать.",
+        "📸 Отправь фото, которое хочешь отредактировать.\n\n"
+        "Стоимость: 1 генерация с баланса.",
     )
 
 
@@ -66,12 +67,11 @@ async def handle_photoshop_photo(message: Message, state: FSMContext, analytics:
     await state.set_state(PhotoUploadStates.waiting_for_custom_prompt)
 
     await message.answer(
-        "🎨 Твоё фото + твоя идея = магия\n\n"
-        "Напиши, что изменить — нейросеть сделает остальное.\n\n"
-        "💎 «Добавь красивый золотой кулон»\n"
-        "✨ «Улучши качество и освещение»\n"
-        "👔 «Переодень в элегантный чёрный костюм»\n"
-        "🌅 «Перенеси на крышу с видом на закат»\n\n"
+        "🎨 Фото загружено! Напиши, что изменить:\n\n"
+        "• «Сделай белый фон»\n"
+        "• «Поменяй причёску на каре»\n"
+        "• «Надень чёрную кожаную куртку»\n"
+        "• «Убери фон и оставь только меня»\n\n"
         "Пиши 👇",
     )
 
