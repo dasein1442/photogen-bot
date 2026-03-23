@@ -136,6 +136,10 @@ async def _do_custom_prompt_generation(
         )
         return
 
+    if gen_result.get("error") == "already_generating":
+        await message.answer("⏳ Подожди — предыдущая генерация ещё в процессе.")
+        return
+
     task_id = gen_result.get("task_id")
     if not task_id:
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")

@@ -132,6 +132,8 @@ class BackendClient:
             ) as resp:
                 if resp.status == 402:
                     return {"error": "no_balance"}
+                if resp.status == 429:
+                    return {"error": "already_generating"}
                 if resp.status >= 400:
                     body = await resp.text()
                     logger.error(f"generate_photo failed: status={resp.status}, body={body}")
@@ -152,6 +154,8 @@ class BackendClient:
                     return {"error": "no_balance"}
                 if resp.status == 404:
                     return {"error": "no_presets"}
+                if resp.status == 429:
+                    return {"error": "already_generating"}
                 resp.raise_for_status()
                 return await resp.json()
 
@@ -164,6 +168,8 @@ class BackendClient:
             ) as resp:
                 if resp.status == 402:
                     return {"error": "no_balance"}
+                if resp.status == 429:
+                    return {"error": "already_generating"}
                 if resp.status >= 400:
                     body = await resp.text()
                     logger.error(f"generate_custom_prompt failed: status={resp.status}, body={body}")
@@ -184,6 +190,8 @@ class BackendClient:
                     return {"error": "no_balance"}
                 if resp.status == 404:
                     return {"error": "no_presets"}
+                if resp.status == 429:
+                    return {"error": "already_generating"}
                 resp.raise_for_status()
                 return await resp.json()
 
