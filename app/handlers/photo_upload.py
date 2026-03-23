@@ -7,7 +7,6 @@ from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.services.analytics_sdk import AnalyticsClient
-from app.services.generation_lock import acquire as lock_acquire, release as lock_release
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
@@ -111,19 +110,8 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
     if telegram_id is None:
         telegram_id = message.from_user.id
 
-    if not lock_acquire(telegram_id):
-        await message.answer("⏳ Подожди — предыдущая генерация ещё в процессе.")
-        return
-
     await message.answer("⏳ Создаю твоё первое фото, подожди немного...")
 
-    try:
-        await _do_onboarding_inner(message, telegram_id, analytics)
-    finally:
-        lock_release(telegram_id)
-
-
-async def _do_onboarding_inner(message: Message, telegram_id: int, analytics: AnalyticsClient | None):
     try:
         gen_result = await backend.generate_onboarding_photo(telegram_id=telegram_id)
     except Exception as e:
