@@ -2,7 +2,7 @@ import logging
 import time
 
 from aiogram import F, Router
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -52,14 +52,13 @@ async def handle_custom_prompt_button(message: Message, state: FSMContext, analy
     await analytics.track("custom_prompt_opened", user_id=str(message.from_user.id))
 
     await message.answer(
-        "✍️ Напиши свой промт для генерации.\n\n"
-        "Опиши, как ты хочешь выглядеть на фото: место, стиль, одежда, настроение — "
-        "всё, что придёт в голову.\n\n"
+        "🎨 Опиши, что хочешь изменить на фото — "
+        "нейросеть сделает остальное.\n\n"
         "Например:\n"
-        "• «Профессиональное фото для LinkedIn в деловом костюме»\n"
-        "• «На пляже на закате в летней одежде»\n"
-        "• «В стиле обложки Vogue, чёрно-белое фото»\n\n"
-        "Отправь текст сообщением 👇",
+        "• «Надень на меня чёрный костюм»\n"
+        "• «Перенеси на пляж на закате»\n"
+        "• «Сделай фото в стиле обложки Vogue»\n\n"
+        "Пиши 👇",
     )
 
 
@@ -165,14 +164,8 @@ async def _do_custom_prompt_generation(message: Message, prompt: str, telegram_i
         logger.info(f"[tg={telegram_id}] Custom prompt generation total={total_time:.2f}s")
 
         await message.answer(
-            "✨ Вот результат по твоему промту!\n\n"
-            "Как тебе?",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="👍 Нравится", callback_data=f"photo_feedback:ps:{task_id}:like"),
-                    InlineKeyboardButton(text="👎 Не нравится", callback_data=f"photo_feedback:ps:{task_id}:dislike"),
-                ],
-            ]),
+            "✨ Готово! Хочешь ещё — просто напиши новый промт или вернись в меню.",
+            reply_markup=get_main_menu_keyboard(),
         )
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
