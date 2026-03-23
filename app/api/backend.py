@@ -138,6 +138,24 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def generate_custom_prompt(self, telegram_id: int, prompt: str) -> dict:
+        """POST /photos/generate-custom — генерация по кастомному промту пользователя."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "prompt": prompt}
+            async with session.post(
+                f"{self.base_url}/photos/generate-custom", json=payload, headers=self._headers()
+            ) as resp:
+                if resp.status == 402:
+                    return {"error": "no_balance"}
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.error(f"generate_custom_prompt failed: status={resp.status}, body={body}")
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=resp.status, message=body,
+                    )
+                return await resp.json()
+
     async def generate_random_photo(self, telegram_id: int) -> dict:
         """POST /photos/generate-random — запуск случайной генерации."""
         async with aiohttp.ClientSession() as session:

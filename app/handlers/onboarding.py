@@ -77,9 +77,7 @@ async def _show_upload_photo_prompt(message: Message, state: FSMContext):
     """Show the 'upload photo' prompt for returning users."""
     try_now_text = (
         "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
-        "Отправь 1 фото — я сделаю тебе тестовый снимок за несколько секунд ✨\n\n"
-        "💡 Лучше обычное селфи с хорошим светом — без фильтров и других людей.\n\n"
-        "🔒 Фото обрабатывается только нейросетью и не сохраняется — всё полностью приватно."
+        "Отправь 1 фото — лучше всего селфи с хорошим светом, без фильтров и других людей."
     )
 
     if TRY_NOW_IMAGE_PATH.exists():
@@ -266,9 +264,7 @@ async def handle_try_now(callback: CallbackQuery, state: FSMContext, analytics: 
     await analytics.track("onboarding_try_now_clicked", user_id=str(callback.from_user.id))
     try_now_text = (
         "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
-        "Отправь 1 фото — я сделаю тебе тестовый снимок за несколько секунд 🤖✨\n\n"
-        "💡 Лучше обычное селфи с хорошим светом — без фильтров и других людей.\n\n"
-        "🔒 Фото обрабатывается только нейросетью и не сохраняется — всё полностью приватно."
+        "Отправь 1 фото — лучше всего селфи с хорошим светом, без фильтров и других людей."
     )
 
     if TRY_NOW_IMAGE_PATH.exists():
