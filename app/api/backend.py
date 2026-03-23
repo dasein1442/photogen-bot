@@ -92,6 +92,23 @@ class BackendClient:
 
                 return {"ok": False, "errors": errors}
 
+    async def upload_photo_raw(self, telegram_id: int, photo_bytes: bytes, filename: str) -> dict:
+        """POST /photos/upload-raw — загрузка фото без face validation (для ИИ-фотошопа)."""
+        async with aiohttp.ClientSession() as session:
+            form = aiohttp.FormData()
+            form.add_field("file", BytesIO(photo_bytes), filename=filename, content_type="image/jpeg")
+            async with session.post(
+                f"{self.base_url}/photos/upload-raw",
+                params={"telegram_id": telegram_id},
+                data=form,
+                headers=self._headers(),
+            ) as resp:
+                if resp.status == 200:
+                    return {"ok": True, **(await resp.json())}
+                body = await resp.json()
+                detail = body.get("detail", "Неизвестная ошибка")
+                return {"ok": False, "error": detail}
+
     async def set_profile_photo(self, telegram_id: int, photo_id: int) -> dict:
         """PUT /users/profile-photo — установка фото профиля."""
         async with aiohttp.ClientSession() as session:
@@ -138,10 +155,10 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def generate_custom_prompt(self, telegram_id: int, prompt: str) -> dict:
+    async def generate_custom_prompt(self, telegram_id: int, prompt: str, photo_id: int) -> dict:
         """POST /photos/generate-custom — генерация по кастомному промту пользователя."""
         async with aiohttp.ClientSession() as session:
-            payload = {"telegram_id": telegram_id, "prompt": prompt}
+            payload = {"telegram_id": telegram_id, "prompt": prompt, "photo_id": photo_id}
             async with session.post(
                 f"{self.base_url}/photos/generate-custom", json=payload, headers=self._headers()
             ) as resp:

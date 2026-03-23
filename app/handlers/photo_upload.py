@@ -42,14 +42,10 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
     photosession_id = data.get("photosession_id")
     random_mode = data.get("random_mode", False)
     onboarding_mode = data.get("onboarding_mode", False)
-    custom_prompt_mode = data.get("custom_prompt_mode", False)
-
     if onboarding_mode:
         upload_source = "onboarding"
     elif random_mode:
         upload_source = "random"
-    elif custom_prompt_mode:
-        upload_source = "custom_prompt"
     elif photosession_id:
         upload_source = "photosession"
     else:
@@ -94,14 +90,6 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
     elif random_mode:
         # Пришли из flow случайной генерации
         await _do_random_generation(message, analytics=analytics)
-    elif custom_prompt_mode:
-        # Пришли из flow кастомного промта — просим написать промт
-        await state.set_state(PhotoUploadStates.waiting_for_custom_prompt)
-        await message.answer(
-            "Фото сохранено ✅\n\n"
-            "Теперь напиши свой промт — опиши, как ты хочешь выглядеть на фото 👇",
-        )
-        return
     elif photosession_id:
         # Пришли из flow генерации — запускаем генерацию автоматически
         await _do_generation(message, photosession_id, analytics=analytics)

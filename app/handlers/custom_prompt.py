@@ -18,38 +18,52 @@ router = Router()
 
 @router.message(F.text == "ИИ-фотошоп")
 async def handle_custom_prompt_button(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    """Пользователь нажал 'ИИ-фотошоп' в главном меню."""
+    """Пользователь нажал 'ИИ-фотошоп' — просим отправить фото для редактирования."""
+    await analytics.track("photoshop_opened", user_id=str(message.from_user.id))
+    await state.clear()
+    await state.set_state(PhotoUploadStates.waiting_for_photoshop_photo)
+
+    await message.answer(
+        "📸 Отправь фото, которое хочешь отредактировать.",
+    )
+
+
+@router.message(F.photo, PhotoUploadStates.waiting_for_photoshop_photo)
+async def handle_photoshop_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    """Пользователь отправил фото для ИИ-фотошопа — загружаем без face validation."""
+    await message.answer("🔄 Загружаю фото...")
+
+    photo = message.photo[-1]
+
     try:
-        user_data = await backend.get_user(telegram_id=message.from_user.id)
+        bot = message.bot
+        file = await bot.get_file(photo.file_id)
+        file_bytes = await bot.download_file(file.file_path)
+        photo_data = file_bytes.read()
     except Exception as e:
-        logger.error(f"Ошибка получения данных пользователя: {e}", exc_info=True)
-        await message.answer("⚠️ Не удалось получить данные. Попробуй позже.")
+        logger.error(f"Ошибка скачивания фото из Telegram: {e}", exc_info=True)
+        await message.answer("⚠️ Не удалось скачать фото. Попробуй ещё раз.")
         return
 
-    profile_photo_id = user_data.get("user", {}).get("profile_photo_id")
-
-    if not profile_photo_id:
-        await state.set_data({"custom_prompt_mode": True})
-        await state.set_state(PhotoUploadStates.waiting_for_main_photo)
-
-        await message.answer(
-            "📸 Для генерации нужно фото профиля.\n\n"
-            "Отправь своё фото в чат — оно будет сохранено и использовано "
-            "для всех будущих генераций.\n\n"
-            "**Несколько важных моментов к фото:**\n"
-            "• Используй крупный план (лучше селфи).\n"
-            "• Без других людей и животных.\n"
-            "• Лицо нейтральное или с лёгкой улыбкой.\n"
-            "• Голова прямо, без наклонов.\n"
-            "• Без очков и аксессуаров на лице.\n"
-            "• Хорошее освещение — залог качественного результата.",
-            parse_mode="Markdown",
+    try:
+        result = await backend.upload_photo_raw(
+            telegram_id=message.from_user.id,
+            photo_bytes=photo_data,
+            filename=f"{message.from_user.id}_{photo.file_id}.jpg",
         )
+    except Exception as e:
+        logger.error(f"Ошибка загрузки фото на бэкенд: {e}", exc_info=True)
+        await message.answer("⚠️ Не удалось загрузить фото. Попробуй позже.")
         return
 
-    await state.set_state(PhotoUploadStates.waiting_for_custom_prompt)
+    if not result.get("ok"):
+        error = result.get("error", "Неизвестная ошибка")
+        await message.answer(f"⚠️ {error}")
+        return
 
-    await analytics.track("custom_prompt_opened", user_id=str(message.from_user.id))
+    photo_id = result["photo_id"]
+    await state.set_data({"photoshop_photo_id": photo_id})
+    await state.set_state(PhotoUploadStates.waiting_for_custom_prompt)
 
     await message.answer(
         "🎨 Твоё фото + твоя идея = магия\n\n"
@@ -80,13 +94,23 @@ async def handle_custom_prompt_text(message: Message, state: FSMContext, analyti
         await message.answer("Промт слишком длинный (максимум 1000 символов). Сократи и отправь снова.")
         return
 
+    data = await state.get_data()
+    photo_id = data.get("photoshop_photo_id")
+    if not photo_id:
+        await state.clear()
+        await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «ИИ-фотошоп».", reply_markup=get_main_menu_keyboard())
+        return
+
     await state.clear()
     await analytics.track("custom_prompt_submitted", user_id=str(message.from_user.id), properties={"prompt_length": len(prompt)})
 
-    await _do_custom_prompt_generation(message, prompt, analytics=analytics)
+    await _do_custom_prompt_generation(message, prompt, photo_id=photo_id, analytics=analytics)
 
 
-async def _do_custom_prompt_generation(message: Message, prompt: str, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
+async def _do_custom_prompt_generation(
+    message: Message, prompt: str, photo_id: int,
+    telegram_id: int | None = None, analytics: AnalyticsClient | None = None,
+):
     """Запуск генерации по кастомному промту → поллинг → отправка результата."""
     t_total = time.monotonic()
     if telegram_id is None:
@@ -96,7 +120,7 @@ async def _do_custom_prompt_generation(message: Message, prompt: str, telegram_i
 
     # 1. Запуск генерации
     try:
-        gen_result = await backend.generate_custom_prompt(telegram_id=telegram_id, prompt=prompt)
+        gen_result = await backend.generate_custom_prompt(telegram_id=telegram_id, prompt=prompt, photo_id=photo_id)
     except Exception as e:
         logger.error(f"Ошибка запуска кастомной генерации: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
@@ -164,7 +188,7 @@ async def _do_custom_prompt_generation(message: Message, prompt: str, telegram_i
         logger.info(f"[tg={telegram_id}] Custom prompt generation total={total_time:.2f}s")
 
         await message.answer(
-            "✨ Готово! Хочешь ещё — просто напиши новый промт или вернись в меню.",
+            "✨ Готово! Хочешь ещё — просто нажми «ИИ-фотошоп» снова.",
             reply_markup=get_main_menu_keyboard(),
         )
     elif status == "failed":
