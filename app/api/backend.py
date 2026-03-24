@@ -217,7 +217,7 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def poll_task(self, task_id: int, interval: int = 5, max_attempts: int = 60) -> dict:
+    async def poll_task(self, task_id: int, interval: int = 5, max_attempts: int = 120) -> dict:
         """Поллинг задачи до завершения. Возвращает финальный статус."""
         for _ in range(max_attempts):
             result = await self.get_task_status(task_id)
