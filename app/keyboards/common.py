@@ -17,7 +17,6 @@ def get_profile_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="Приобрести генерации")],
             [KeyboardButton(text="Установить новое фото")],
-            [KeyboardButton(text="Установить фото партнёра")],
             [KeyboardButton(text="Назад")],
         ],
         resize_keyboard=True

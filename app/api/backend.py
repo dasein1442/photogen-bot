@@ -50,14 +50,11 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def get_photosessions(self, type: str | None = None) -> list[dict]:
-        """GET /photosessions — список доступных фотосессий. Опционально фильтр по типу."""
+    async def get_photosessions(self) -> list[dict]:
+        """GET /photosessions — список доступных фотосессий."""
         async with aiohttp.ClientSession() as session:
-            params = {}
-            if type is not None:
-                params["type"] = type
             async with session.get(
-                f"{self.base_url}/photosessions", params=params, headers=self._headers()
+                f"{self.base_url}/photosessions", headers=self._headers()
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()
@@ -118,16 +115,6 @@ class BackendClient:
             payload = {"telegram_id": telegram_id, "photo_id": photo_id}
             async with session.put(
                 f"{self.base_url}/users/profile-photo", json=payload, headers=self._headers()
-            ) as resp:
-                resp.raise_for_status()
-                return await resp.json()
-
-    async def set_additional_photo(self, telegram_id: int, photo_id: int) -> dict:
-        """PUT /users/additional-photo — установка дополнительного фото (партнёра)."""
-        async with aiohttp.ClientSession() as session:
-            payload = {"telegram_id": telegram_id, "photo_id": photo_id}
-            async with session.put(
-                f"{self.base_url}/users/additional-photo", json=payload, headers=self._headers()
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()
