@@ -39,7 +39,7 @@ async def download_photo(url: str) -> bytes:
     """Download photo by URL. Returns bytes. Raises on error."""
     logger.info(f"[download] Starting download: {url[:120]}...")
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
             logger.info(f"[download] HTTP {resp.status}, content-type={resp.content_type}, content-length={resp.content_length}")
             resp.raise_for_status()
             data = await resp.read()
