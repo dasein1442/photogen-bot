@@ -228,6 +228,26 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def upscale_photo(self, telegram_id: int, photo_id: int) -> dict:
+        """POST /photos/upscale — запуск апскейла фото."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "photo_id": photo_id}
+            async with session.post(
+                f"{self.base_url}/photos/upscale", json=payload, headers=self._headers()
+            ) as resp:
+                if resp.status == 402:
+                    return {"error": "no_balance"}
+                if resp.status == 429:
+                    return {"error": "already_generating"}
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.error(f"upscale_photo failed: status={resp.status}, body={body}")
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=resp.status, message=body,
+                    )
+                return await resp.json()
+
     async def get_task_status(self, task_id: int) -> dict:
         """GET /photos/task/{task_id} — статус задачи генерации."""
         async with aiohttp.ClientSession() as session:

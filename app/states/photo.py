@@ -11,3 +11,5 @@ class PhotoUploadStates(StatesGroup):
     # Генерация по промту
     waiting_for_prompt_gen_photo = State()
     waiting_for_prompt_gen_text = State()
+    # Апскейл
+    waiting_for_upscale_photo = State()
