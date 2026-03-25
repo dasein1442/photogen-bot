@@ -204,15 +204,14 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def poll_task(self, task_id: int, interval: int = 5, max_attempts: int = 60) -> dict:
-        """Поллинг задачи до завершения. Возвращает финальный статус."""
-        for _ in range(max_attempts):
+    async def poll_task(self, task_id: int, interval: int = 5, **_kwargs) -> dict:
+        """Поллинг задачи до завершения. Бэкенд — единый источник правды."""
+        while True:
             result = await self.get_task_status(task_id)
             status = result.get("status")
             if status in ("completed", "failed"):
                 return result
             await asyncio.sleep(interval)
-        return {"status": "timeout", "error_message": "Превышено время ожидания генерации"}
 
     async def refund_delivery(self, telegram_id: int, task_id: int, failed_count: int) -> dict:
         """POST /photos/refund-delivery -- refund credits for failed Telegram delivery."""

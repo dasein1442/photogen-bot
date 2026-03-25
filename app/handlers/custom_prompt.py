@@ -198,11 +198,3 @@ async def _do_custom_prompt_generation(
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
         await message.answer(f"❌ Генерация не удалась: {error_msg}")
-    else:
-        await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
-        if task_id:
-            try:
-                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
-                logger.info(f"[tg={telegram_id}] custom_prompt: refunded 1 generation for poll timeout")
-            except Exception as refund_err:
-                logger.error(f"[tg={telegram_id}] custom_prompt: timeout refund failed: {refund_err}", exc_info=True)

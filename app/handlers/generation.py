@@ -236,29 +236,3 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
         await message.answer(f"❌ Генерация не удалась: {error_msg}")
-    else:
-        await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
-        if task_id:
-            logger.error(f"[tg={telegram_id}] Poll timeout for task_id={task_id}, photosession_id={photosession_id}, attempting refund", exc_info=True)
-            try:
-                # Determine how many credits were charged for this photosession
-                refund_count = 1  # default for custom/random
-                try:
-                    photosessions = await backend.get_photosessions()
-                    ps = next((p for p in photosessions if p["id"] == photosession_id), None)
-                    if ps and ps.get("preset_count"):
-                        refund_count = ps["preset_count"]
-                except Exception:
-                    # Fallback: try from task results
-                    task_data = await backend.get_task_status(task_id)
-                    results = task_data.get("results") or []
-                    if results:
-                        refund_count = len(results)
-                await backend.refund_delivery(
-                    telegram_id=telegram_id,
-                    task_id=task_id,
-                    failed_count=refund_count,
-                )
-                logger.info(f"[tg={telegram_id}] Refunded {refund_count} generations for poll timeout (photosession_id={photosession_id})")
-            except Exception as refund_err:
-                logger.error(f"[tg={telegram_id}] Timeout refund failed: {refund_err}", exc_info=True)

@@ -1,0 +1,11 @@
+services:
+  stage-bot:
+    build: .
+    restart: always
+    env_file: .env.stage
+    network_mode: host
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
