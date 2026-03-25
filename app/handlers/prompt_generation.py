@@ -20,20 +20,21 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.message(F.text == "Генерация по промту")
+@router.message(F.text == "💫 Новый образ")
 async def handle_prompt_gen_button(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    """User clicked 'Генерация по промту' — ask for photo."""
+    """User clicked 'Образ по своему желанию' — ask for photo."""
     await analytics.track("prompt_generation_opened", user_id=str(message.from_user.id))
     await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_prompt_gen_photo)
     await state.set_data({"prompt_gen_photo_ids": []})
 
     await message.answer(
-        "🎨 Генерация по промту\n\n"
-        "Отправь фото (до 2 штук), а затем опиши, что хочешь получить.\n"
-        "Я обработаю твой запрос через ИИ и сгенерирую результат.\n\n"
-        "Стоимость: 2 генерации с баланса.\n\n"
-        "Отправь фото 👇",
+        "💫 <b>Новый образ</b>\n\n"
+        "Опиши любой сценарий — ИИ создаст портретное фото с нуля, сохранив твою внешность. "
+        "2 фото = точнее лицо. А если на фото разные люди — ИИ соберёт их вместе.\n\n"
+        "📎 Отправь одну или две фотографии, а затем опиши сцену.\n\n"
+        "<i>Стоимость: 2 генерации.</i>",
+        parse_mode="HTML",
     )
 
 
@@ -83,18 +84,20 @@ async def handle_prompt_gen_photo(message: Message, state: FSMContext, analytics
     if len(photo_ids) == 1:
         await state.set_state(PhotoUploadStates.waiting_for_prompt_gen_text)
         await message.answer(
-            "📸 Фото загружено!\n\n"
-            "Можешь отправить ещё одно фото или сразу написать свой запрос.\n\n"
-            "Например:\n"
-            "• «Сделай в стиле аниме»\n"
-            "• «Перенеси на пляж с закатом»\n"
-            "• «Сделай как картину маслом»\n\n"
-            "Пиши или отправь ещё фото 👇",
+            "✅ Фото загружено!\n\n"
+            "Опиши сцену, которую хочешь — или отправь ещё одно фото.\n\n"
+            "Обязательно укажи, кто на фото: пол, возраст, внешность. "
+            "Чем подробнее — тем лучше результат.\n\n"
+            "<blockquote expandable><b>Примеры запросов:</b>\n\n"
+            "Девушка средних лет сидит в парижском кафе с круассаном и кофе, утренний свет, вид на Эйфелеву башню\n\n"
+            "Парень 18 лет стоит на крыше небоскрёба в Нью-Йорке ночью, ветер, огни города позади\n\n"
+            "Мама 32 года с дочкой 5 лет на пляже Мальдив, обе в белых платьях, закат и бирюзовая вода</blockquote>",
+            parse_mode="HTML",
         )
     else:
         await state.set_state(PhotoUploadStates.waiting_for_prompt_gen_text)
         await message.answer(
-            "📸 Оба фото загружены! Напиши свой запрос 👇",
+            "Оба фото загружены! Напиши свой запрос 👇",
         )
 
 
@@ -115,7 +118,7 @@ async def handle_prompt_gen_text(message: Message, state: FSMContext, analytics:
     """User sent prompt text for generation."""
     prompt = message.text.strip()
 
-    menu_buttons = ("Фотосессии", "Случайное фото", "Профиль", "Служба заботы", "Назад", "ИИ-фотошоп", "Генерация по промту")
+    menu_buttons = ("📸 Создать фотосессию", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
     if prompt.startswith("/") or prompt in menu_buttons:
         await state.clear()
         return
@@ -132,7 +135,7 @@ async def handle_prompt_gen_text(message: Message, state: FSMContext, analytics:
     photo_ids = data.get("prompt_gen_photo_ids", [])
     if not photo_ids:
         await state.clear()
-        await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «Генерация по промту».", reply_markup=get_main_menu_keyboard())
+        await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «💫 Новый образ».", reply_markup=get_main_menu_keyboard())
         return
 
     await state.clear()
@@ -224,7 +227,7 @@ async def _do_prompt_generation(
         logger.info(f"[tg={telegram_id}] Prompt generation total={total_time:.2f}s")
 
         await message.answer(
-            "✨ Готово! Хочешь ещё — нажми «Генерация по промту» снова.",
+            "✨ Готово! Хочешь ещё — нажми «💫 Новый образ» снова.",
             reply_markup=get_main_menu_keyboard(),
         )
     elif status == "failed":

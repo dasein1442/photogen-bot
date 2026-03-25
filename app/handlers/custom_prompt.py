@@ -16,18 +16,22 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.message(F.text == "ИИ-фотошоп")
+@router.message(F.text == "✨ Изменить фото")
 async def handle_custom_prompt_button(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    """Пользователь нажал 'ИИ-фотошоп' — просим отправить фото для редактирования."""
+    """Пользователь нажал 'Изменить фото' — просим отправить фото для редактирования."""
     await analytics.track("photoshop_opened", user_id=str(message.from_user.id))
     await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_photoshop_photo)
     await state.set_data({"photoshop_photo_ids": []})
 
     await message.answer(
-        "📸 Отправь от 1 до 2 фото для редактирования.\n\n"
-        "Можешь отправить одно фото или два по очереди.\n"
-        "Стоимость: 2 генерации с баланса.",
+        "✨ <b>Изменить фото</b>\n\n"
+        "Отправь фото — и опиши, что хочешь получить. "
+        "ИИ изменит что угодно: фон, одежду, внешность, атмосферу. "
+        "А ещё — может сделать открытку, убрать лишнее или объединить людей с двух фото.\n\n"
+        "📎 Отправь одну или две фотографии.\n\n"
+        "<i>Стоимость: 2 генерации.</i>",
+        parse_mode="HTML",
     )
 
 
@@ -77,19 +81,26 @@ async def handle_photoshop_photo(message: Message, state: FSMContext, analytics:
     if len(photo_ids) == 1:
         await state.set_state(PhotoUploadStates.waiting_for_photoshop_photo_or_prompt)
         await message.answer(
-            "🎨 Фото загружено! Можешь:\n\n"
-            "• Отправить ещё одно фото (макс. 2)\n"
-            "• Или сразу написать, что изменить:\n\n"
-            "Примеры промтов:\n"
-            "• «Сделай белый фон»\n"
-            "• «Поменяй причёску на каре»\n"
-            "• «Надень чёрную кожаную куртку»\n\n"
-            "Пиши или отправь ещё фото 👇",
+            "✅ Фото загружено!\n\n"
+            "Опиши, что хочешь получить — или отправь 2-е фото.\n"
+            "Чем подробнее — тем лучше результат.\n\n"
+            "<blockquote expandable><b>Примеры запросов:</b>\n\n"
+            "• Замени фон на уютное кафе с тёплым вечерним светом\n"
+            "• Переодень в чёрное вечернее платье с открытыми плечами\n"
+            "• Сделай причёску — объёмные локоны медового оттенка\n"
+            "• Убери всех людей на фоне, оставь только меня\n"
+            "• Добавь снег, гирлянды и новогоднюю атмосферу\n"
+            "• Сделай открытку с надписью «С Днём Рождения!»\n"
+            "• Сделай лёгкий загар и голливудскую укладку\n\n"
+            "💡 Можно отправить 2 фото и объединить их:\n"
+            "• Поставь мужчину с фото 1 и девушку с фото 2 рядом\n"
+            "• Возьми фон с первого фото, а человека со второго</blockquote>",
+            parse_mode="HTML",
         )
     else:
         await state.set_state(PhotoUploadStates.waiting_for_custom_prompt)
         await message.answer(
-            "🎨 Оба фото загружены! Напиши, что изменить 👇",
+            "Оба фото загружены! Опиши, что сделать 👇",
         )
 
 
@@ -112,7 +123,7 @@ async def handle_custom_prompt_text(message: Message, state: FSMContext, analyti
     prompt = message.text.strip()
 
     # Проверяем, что это не команда или кнопка меню
-    menu_buttons = ("Фотосессии", "Случайное фото", "Профиль", "Служба заботы", "Назад", "ИИ-фотошоп", "Генерация по промту")
+    menu_buttons = ("📸 Создать фотосессию", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
     if prompt.startswith("/") or prompt in menu_buttons:
         await state.clear()
         return  # пусть другой хэндлер обработает
@@ -129,7 +140,7 @@ async def handle_custom_prompt_text(message: Message, state: FSMContext, analyti
     photo_ids = data.get("photoshop_photo_ids", [])
     if not photo_ids:
         await state.clear()
-        await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «ИИ-фотошоп».", reply_markup=get_main_menu_keyboard())
+        await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «✨ Изменить фото».", reply_markup=get_main_menu_keyboard())
         return
 
     await state.clear()
@@ -223,7 +234,7 @@ async def _do_custom_prompt_generation(
         logger.info(f"[tg={telegram_id}] Custom prompt generation total={total_time:.2f}s")
 
         await message.answer(
-            "✨ Готово! Хочешь ещё — просто нажми «ИИ-фотошоп» снова.",
+            "✨ Готово! Хочешь ещё — просто нажми «✨ Изменить фото» снова.",
             reply_markup=get_main_menu_keyboard(),
         )
     elif status == "failed":

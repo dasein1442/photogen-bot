@@ -37,12 +37,16 @@ def _photosession_list_keyboard(photosessions: list[dict], ps_type: str) -> Inli
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-@router.message(F.text == "Фотосессии")
+@router.message(F.text == "📸 Создать фотосессию")
 async def handle_photosessions(message: Message, analytics: AnalyticsClient):
     await analytics.track("photosessions_viewed", user_id=str(message.from_user.id))
 
     await message.answer(
-        "Выберите тип фотосессии:",
+        "📸 Готовые фотосессии — наш главный инструмент.\n"
+        "Выбери тип, внутри — готовые сценарии.\n"
+        "Каждая фотосессия = 5 фото за 5 генераций.\n\n"
+        "Для мужской или парной нужно загрузить фото партнёра в профиле.\n\n"
+        "Выбери тип:",
         reply_markup=_type_selection_keyboard(),
     )
 
