@@ -1,6 +1,6 @@
 from aiogram import Router
 
-from . import onboarding, photo_upload, generation, payment, profile, menu, photosessions, random_photo, custom_prompt
+from . import onboarding, photo_upload, generation, payment, profile, menu, photosessions, random_photo, custom_prompt, prompt_generation
 
 
 def get_all_routers() -> list[Router]:
@@ -9,6 +9,7 @@ def get_all_routers() -> list[Router]:
         photo_upload.router,
         random_photo.router,
         custom_prompt.router,
+        prompt_generation.router,
         payment.router,
         profile.router,
 

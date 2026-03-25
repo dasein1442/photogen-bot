@@ -22,16 +22,25 @@ async def handle_custom_prompt_button(message: Message, state: FSMContext, analy
     await analytics.track("photoshop_opened", user_id=str(message.from_user.id))
     await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_photoshop_photo)
+    await state.set_data({"photoshop_photo_ids": []})
 
     await message.answer(
-        "📸 Отправь фото, которое хочешь отредактировать.\n\n"
-        "Стоимость: 1 генерация с баланса.",
+        "📸 Отправь от 1 до 2 фото для редактирования.\n\n"
+        "Можешь отправить одно фото или два по очереди.\n"
+        "Стоимость: 2 генерации с баланса.",
     )
 
 
 @router.message(F.photo, PhotoUploadStates.waiting_for_photoshop_photo)
 async def handle_photoshop_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Пользователь отправил фото для ИИ-фотошопа — загружаем без face validation."""
+    data = await state.get_data()
+    photo_ids = data.get("photoshop_photo_ids", [])
+
+    if len(photo_ids) >= 2:
+        await message.answer("⚠️ Максимум 2 фото. Напиши промт для редактирования 👇")
+        return
+
     await message.answer("🔄 Загружаю фото...")
 
     photo = message.photo[-1]
@@ -62,18 +71,39 @@ async def handle_photoshop_photo(message: Message, state: FSMContext, analytics:
         await message.answer(f"⚠️ {error}")
         return
 
-    photo_id = result["photo_id"]
-    await state.set_data({"photoshop_photo_id": photo_id})
-    await state.set_state(PhotoUploadStates.waiting_for_custom_prompt)
+    photo_ids.append(result["photo_id"])
+    await state.set_data({"photoshop_photo_ids": photo_ids})
 
-    await message.answer(
-        "🎨 Фото загружено! Напиши, что изменить:\n\n"
-        "• «Сделай белый фон»\n"
-        "• «Поменяй причёску на каре»\n"
-        "• «Надень чёрную кожаную куртку»\n"
-        "• «Убери фон и оставь только меня»\n\n"
-        "Пиши 👇",
-    )
+    if len(photo_ids) == 1:
+        await state.set_state(PhotoUploadStates.waiting_for_photoshop_photo_or_prompt)
+        await message.answer(
+            "🎨 Фото загружено! Можешь:\n\n"
+            "• Отправить ещё одно фото (макс. 2)\n"
+            "• Или сразу написать, что изменить:\n\n"
+            "Примеры промтов:\n"
+            "• «Сделай белый фон»\n"
+            "• «Поменяй причёску на каре»\n"
+            "• «Надень чёрную кожаную куртку»\n\n"
+            "Пиши или отправь ещё фото 👇",
+        )
+    else:
+        await state.set_state(PhotoUploadStates.waiting_for_custom_prompt)
+        await message.answer(
+            "🎨 Оба фото загружены! Напиши, что изменить 👇",
+        )
+
+
+@router.message(F.photo, PhotoUploadStates.waiting_for_photoshop_photo_or_prompt)
+async def handle_second_photoshop_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    """Пользователь отправил второе фото."""
+    await handle_photoshop_photo(message, state, analytics)
+
+
+@router.message(F.text, PhotoUploadStates.waiting_for_photoshop_photo_or_prompt)
+async def handle_prompt_after_first_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    """Пользователь написал промт после первого фото (без второго)."""
+    await state.set_state(PhotoUploadStates.waiting_for_custom_prompt)
+    await handle_custom_prompt_text(message, state, analytics)
 
 
 @router.message(F.text, PhotoUploadStates.waiting_for_custom_prompt)
@@ -82,7 +112,8 @@ async def handle_custom_prompt_text(message: Message, state: FSMContext, analyti
     prompt = message.text.strip()
 
     # Проверяем, что это не команда или кнопка меню
-    if prompt.startswith("/") or prompt in ("Фотосессии", "Случайное фото", "Профиль", "Служба заботы", "Назад", "ИИ-фотошоп"):
+    menu_buttons = ("Фотосессии", "Случайное фото", "Профиль", "Служба заботы", "Назад", "ИИ-фотошоп", "Генерация по промту")
+    if prompt.startswith("/") or prompt in menu_buttons:
         await state.clear()
         return  # пусть другой хэндлер обработает
 
@@ -95,20 +126,20 @@ async def handle_custom_prompt_text(message: Message, state: FSMContext, analyti
         return
 
     data = await state.get_data()
-    photo_id = data.get("photoshop_photo_id")
-    if not photo_id:
+    photo_ids = data.get("photoshop_photo_ids", [])
+    if not photo_ids:
         await state.clear()
         await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «ИИ-фотошоп».", reply_markup=get_main_menu_keyboard())
         return
 
     await state.clear()
-    await analytics.track("custom_prompt_submitted", user_id=str(message.from_user.id), properties={"prompt_length": len(prompt)})
+    await analytics.track("custom_prompt_submitted", user_id=str(message.from_user.id), properties={"prompt_length": len(prompt), "photo_count": len(photo_ids)})
 
-    await _do_custom_prompt_generation(message, prompt, photo_id=photo_id, analytics=analytics)
+    await _do_custom_prompt_generation(message, prompt, photo_ids=photo_ids, analytics=analytics)
 
 
 async def _do_custom_prompt_generation(
-    message: Message, prompt: str, photo_id: int,
+    message: Message, prompt: str, photo_ids: list[int],
     telegram_id: int | None = None, analytics: AnalyticsClient | None = None,
 ):
     """Запуск генерации по кастомному промту → поллинг → отправка результата."""
@@ -120,7 +151,7 @@ async def _do_custom_prompt_generation(
 
     # 1. Запуск генерации
     try:
-        gen_result = await backend.generate_custom_prompt(telegram_id=telegram_id, prompt=prompt, photo_id=photo_id)
+        gen_result = await backend.generate_custom_prompt(telegram_id=telegram_id, prompt=prompt, photo_ids=photo_ids)
     except Exception as e:
         logger.error(f"Ошибка запуска кастомной генерации: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
@@ -171,7 +202,7 @@ async def _do_custom_prompt_generation(
             logger.error(f"[tg={telegram_id}] custom_prompt: download failed: {e}", exc_info=True)
             await message.answer("Не удалось скачать фото. Попробуй позже.")
             try:
-                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=2)
             except Exception as re:
                 logger.error(f"[tg={telegram_id}] custom_prompt: refund failed: {re}", exc_info=True)
             return
@@ -184,7 +215,7 @@ async def _do_custom_prompt_generation(
 
         if send_result.failed > 0:
             try:
-                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=2)
             except Exception as re:
                 logger.error(f"[tg={telegram_id}] custom_prompt: refund failed: {re}", exc_info=True)
 
@@ -198,3 +229,11 @@ async def _do_custom_prompt_generation(
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
         await message.answer(f"❌ Генерация не удалась: {error_msg}")
+    else:
+        await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
+        if task_id:
+            try:
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=2)
+                logger.info(f"[tg={telegram_id}] custom_prompt: refunded 2 generations for poll timeout")
+            except Exception as refund_err:
+                logger.error(f"[tg={telegram_id}] custom_prompt: timeout refund failed: {refund_err}", exc_info=True)

@@ -7,3 +7,7 @@ class PhotoUploadStates(StatesGroup):
     onboarding_paywall = State()
     waiting_for_custom_prompt = State()
     waiting_for_photoshop_photo = State()
+    waiting_for_photoshop_photo_or_prompt = State()
+    # Генерация по промту
+    waiting_for_prompt_gen_photo = State()
+    waiting_for_prompt_gen_text = State()
