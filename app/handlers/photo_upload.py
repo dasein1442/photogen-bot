@@ -207,6 +207,14 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
     elif status == "failed":
         error_msg = task_result.get("error_message", "Неизвестная ошибка")
         await message.answer(f"❌ Генерация не удалась: {error_msg}")
+    else:
+        await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
+        if task_id:
+            try:
+                await backend.refund_delivery(telegram_id=telegram_id, task_id=task_id, failed_count=1)
+                logger.info(f"[tg={telegram_id}] onboarding: refunded 1 generation for poll timeout")
+            except Exception as refund_err:
+                logger.error(f"[tg={telegram_id}] onboarding: timeout refund failed: {refund_err}", exc_info=True)
 
 
 @router.message(F.photo, PhotoUploadStates.waiting_for_main_photo)
