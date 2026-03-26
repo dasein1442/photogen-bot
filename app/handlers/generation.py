@@ -35,7 +35,10 @@ async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext,
     photosession_id = int(callback.data.split("_")[2])
     await analytics.track("photosession_selected", user_id=str(callback.from_user.id), properties={"photosession_id": photosession_id})
 
-    # Проверяем, установлено ли фото профиля
+    # Получаем данные пользователя и тип фотосессии из state
+    data = await state.get_data()
+    ps_type = data.get("ps_type", "female")
+
     try:
         user_data = await backend.get_user(telegram_id=callback.from_user.id)
     except Exception as e:
@@ -45,30 +48,102 @@ async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext,
         return
 
     profile_photo_id = user_data.get("user", {}).get("profile_photo_id")
+    additional_photo_id = user_data.get("user", {}).get("additional_photo_id")
 
-    if profile_photo_id:
-        # Фото профиля есть — сразу генерируем
-        await callback.answer()
-        await _do_generation(callback.message, photosession_id, callback.from_user.id, analytics=analytics)
-    else:
-        # Фото профиля нет — просим загрузить
-        await state.set_data({"photosession_id": photosession_id})
-        await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+    # Валидация наличия нужных фото в зависимости от типа фотосессии
+    if ps_type == "female":
+        if not profile_photo_id:
+            await state.update_data(photosession_id=photosession_id)
+            await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+            await callback.message.answer(
+                "📸 Для генерации нужно фото профиля.\n\n"
+                "Отправь своё фото в чат — оно будет сохранено и использовано "
+                "для всех будущих генераций.\n\n"
+                "**Несколько важных моментов к фото:**\n"
+                "• Используй крупный план (лучше селфи).\n"
+                "• Без других людей и животных.\n"
+                "• Лицо нейтральное или с лёгкой улыбкой.\n"
+                "• Голова прямо, без наклонов.\n"
+                "• Без очков и аксессуаров на лице.\n"
+                "• Хорошее освещение — залог качественного результата.",
+                parse_mode="Markdown",
+            )
+            await callback.answer()
+            return
 
-        await callback.message.answer(
-            "📸 Для генерации нужно фото профиля.\n\n"
-            "Отправь своё фото в чат — оно будет сохранено и использовано "
-            "для всех будущих генераций.\n\n"
-            "**Несколько важных моментов к фото:**\n"
-            "• Используй крупный план (лучше селфи).\n"
-            "• Без других людей и животных.\n"
-            "• Лицо нейтральное или с лёгкой улыбкой.\n"
-            "• Голова прямо, без наклонов.\n"
-            "• Без очков и аксессуаров на лице.\n"
-            "• Хорошее освещение — залог качественного результата.",
-            parse_mode="Markdown",
-        )
-        await callback.answer()
+    elif ps_type == "male":
+        if not additional_photo_id:
+            await state.update_data(photosession_id=photosession_id)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📸 Загрузить фото партнёра", callback_data="upload_additional_photo")],
+            ])
+            await callback.message.answer(
+                "Для мужской фотосессии нужно загрузить фото мужчины.\n\n"
+                "Хотите загрузить сейчас?",
+                reply_markup=keyboard,
+            )
+            await callback.answer()
+            return
+
+    elif ps_type == "couple":
+        missing = []
+        if not profile_photo_id:
+            missing.append("• Ваше фото (фото профиля)")
+        if not additional_photo_id:
+            missing.append("• Фото партнёра (мужчины)")
+
+        if missing:
+            missing_text = "\n".join(missing)
+            buttons = []
+            if not profile_photo_id:
+                buttons.append([InlineKeyboardButton(text="📸 Загрузить своё фото", callback_data="upload_profile_photo_for_gen")])
+            if not additional_photo_id:
+                buttons.append([InlineKeyboardButton(text="📸 Загрузить фото партнёра", callback_data="upload_additional_photo")])
+
+            await state.update_data(photosession_id=photosession_id)
+            await callback.message.answer(
+                f"Для парной фотосессии нужны оба фото.\n\n"
+                f"Не хватает:\n{missing_text}\n\n"
+                f"Загрузите недостающие фото:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+            )
+            await callback.answer()
+            return
+
+    # Все фото на месте — запускаем генерацию
+    await callback.answer()
+    await _do_generation(callback.message, photosession_id, callback.from_user.id, analytics=analytics)
+
+
+@router.callback_query(lambda cb: cb.data == "upload_profile_photo_for_gen")
+async def handle_upload_profile_for_gen(callback: CallbackQuery, state: FSMContext):
+    """Загрузка фото профиля из flow генерации (парная фотосессия)."""
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    data = await state.get_data()
+    photosession_id = data.get("photosession_id")
+
+    await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+    if photosession_id:
+        await state.update_data(photosession_id=photosession_id)
+
+    await callback.message.answer(
+        "📸 Для генерации нужно фото профиля.\n\n"
+        "Отправь своё фото в чат — оно будет сохранено и использовано "
+        "для всех будущих генераций.\n\n"
+        "**Несколько важных моментов к фото:**\n"
+        "• Используй крупный план (лучше селфи).\n"
+        "• Без других людей и животных.\n"
+        "• Лицо нейтральное или с лёгкой улыбкой.\n"
+        "• Голова прямо, без наклонов.\n"
+        "• Без очков и аксессуаров на лице.\n"
+        "• Хорошее освещение — залог качественного результата.",
+        parse_mode="Markdown",
+    )
+    await callback.answer()
 
 
 async def _do_generation(message: Message, photosession_id: int, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):

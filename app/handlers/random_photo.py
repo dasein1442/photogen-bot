@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.message(F.text == "Случайное фото")
+@router.message(F.text == "🎲 Случайное фото")
 async def handle_random_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Обработка кнопки 'Случайное фото'."""
     try:

@@ -50,11 +50,14 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def get_photosessions(self) -> list[dict]:
-        """GET /photosessions — список доступных фотосессий."""
+    async def get_photosessions(self, type: str | None = None) -> list[dict]:
+        """GET /photosessions — список доступных фотосессий. Опционально фильтр по типу."""
         async with aiohttp.ClientSession() as session:
+            params = {}
+            if type is not None:
+                params["type"] = type
             async with session.get(
-                f"{self.base_url}/photosessions", headers=self._headers()
+                f"{self.base_url}/photosessions", params=params, headers=self._headers()
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()
@@ -119,6 +122,16 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def set_additional_photo(self, telegram_id: int, photo_id: int) -> dict:
+        """PUT /users/additional-photo — установка дополнительного фото (партнёра)."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "photo_id": photo_id}
+            async with session.put(
+                f"{self.base_url}/users/additional-photo", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
     async def generate_photo(self, telegram_id: int, photosession_id: int) -> dict:
         """POST /photos/generate — запуск генерации."""
         async with aiohttp.ClientSession() as session:
@@ -159,10 +172,10 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def generate_custom_prompt(self, telegram_id: int, prompt: str, photo_id: int) -> dict:
+    async def generate_custom_prompt(self, telegram_id: int, prompt: str, photo_ids: list[int]) -> dict:
         """POST /photos/generate-custom — генерация по кастомному промту пользователя."""
         async with aiohttp.ClientSession() as session:
-            payload = {"telegram_id": telegram_id, "prompt": prompt, "photo_id": photo_id}
+            payload = {"telegram_id": telegram_id, "prompt": prompt, "photo_ids": photo_ids}
             async with session.post(
                 f"{self.base_url}/photos/generate-custom", json=payload, headers=self._headers()
             ) as resp:
@@ -173,6 +186,26 @@ class BackendClient:
                 if resp.status >= 400:
                     body = await resp.text()
                     logger.error(f"generate_custom_prompt failed: status={resp.status}, body={body}")
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=resp.status, message=body,
+                    )
+                return await resp.json()
+
+    async def generate_prompt(self, telegram_id: int, prompt: str, photo_ids: list[int]) -> dict:
+        """POST /photos/generate-prompt — генерация по промту (Gemini + Seedream)."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "prompt": prompt, "photo_ids": photo_ids}
+            async with session.post(
+                f"{self.base_url}/photos/generate-prompt", json=payload, headers=self._headers()
+            ) as resp:
+                if resp.status == 402:
+                    return {"error": "no_balance"}
+                if resp.status == 429:
+                    return {"error": "already_generating"}
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.error(f"generate_prompt failed: status={resp.status}, body={body}")
                     raise aiohttp.ClientResponseError(
                         resp.request_info, resp.history,
                         status=resp.status, message=body,
@@ -193,6 +226,26 @@ class BackendClient:
                 if resp.status == 429:
                     return {"error": "already_generating"}
                 resp.raise_for_status()
+                return await resp.json()
+
+    async def upscale_photo(self, telegram_id: int, photo_id: int) -> dict:
+        """POST /photos/upscale — запуск апскейла фото."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "photo_id": photo_id}
+            async with session.post(
+                f"{self.base_url}/photos/upscale", json=payload, headers=self._headers()
+            ) as resp:
+                if resp.status == 402:
+                    return {"error": "no_balance"}
+                if resp.status == 429:
+                    return {"error": "already_generating"}
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.error(f"upscale_photo failed: status={resp.status}, body={body}")
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=resp.status, message=body,
+                    )
                 return await resp.json()
 
     async def get_task_status(self, task_id: int) -> dict:

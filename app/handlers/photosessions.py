@@ -2,6 +2,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, URLInputFile
+from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.services.analytics_sdk import AnalyticsClient
@@ -9,36 +10,130 @@ from app.services.analytics_sdk import AnalyticsClient
 logger = logging.getLogger(__name__)
 router = Router()
 
+# Mapping type key -> display label
+PS_TYPES = {
+    "female": "👩 Женская",
+    "male": "👨 Мужская",
+    "couple": "👫 Парная",
+}
 
-@router.message(F.text == "Фотосессии")
-async def handle_photosessions(message: Message, analytics: AnalyticsClient):
-    try:
-        photosessions = await backend.get_photosessions()
-    except Exception as e:
-        logger.error(f"Ошибка загрузки фотосессий: {e}")
-        await message.answer("⚠️ Не удалось загрузить фотосессии. Попробуй позже.")
-        return
 
-    await analytics.track("photosessions_viewed", user_id=str(message.from_user.id), properties={"count": len(photosessions)})
+def _type_selection_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора типа фотосессии."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👩 Женская", callback_data="ps_type_female")],
+        [InlineKeyboardButton(text="👨 Мужская", callback_data="ps_type_male")],
+        [InlineKeyboardButton(text="👫 Парная", callback_data="ps_type_couple")],
+    ])
 
-    if not photosessions:
-        await message.answer("Пока нет доступных фотосессий. Заходи позже!")
-        return
 
+def _photosession_list_keyboard(photosessions: list[dict], ps_type: str) -> InlineKeyboardMarkup:
+    """Клавиатура списка фотосессий с кнопкой назад."""
     buttons = []
     for ps in photosessions:
         name = ps.get("name") or f"Фотосессия {ps['id']}"
         buttons.append([InlineKeyboardButton(text=name, callback_data=f"ps_view_{ps['id']}")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="ps_back_to_types")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    await message.answer("Выбери фотосессию 📸👇", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+@router.message(F.text == "📸 Создать фотосессию")
+async def handle_photosessions(message: Message, analytics: AnalyticsClient):
+    await analytics.track("photosessions_viewed", user_id=str(message.from_user.id))
+
+    await message.answer(
+        "📸 Готовые фотосессии — наш главный инструмент.\n"
+        "Выбери тип, внутри — готовые сценарии.\n"
+        "Каждая фотосессия = 5 фото за 5 генераций.\n\n"
+        "Для мужской или парной нужно загрузить фото партнёра в профиле.\n\n"
+        "Выбери тип:",
+        reply_markup=_type_selection_keyboard(),
+    )
+
+
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("ps_type_"))
+async def handle_type_selection(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
+    """Пользователь выбрал тип фотосессии."""
+    ps_type = callback.data.replace("ps_type_", "")  # female, male, couple
+
+    await analytics.track(
+        "photosession_type_selected",
+        user_id=str(callback.from_user.id),
+        properties={"type": ps_type},
+    )
+
+    # Сохраняем тип в FSM state data для дальнейшего использования
+    await state.update_data(ps_type=ps_type)
+
+    try:
+        photosessions = await backend.get_photosessions(type=ps_type)
+    except Exception as e:
+        logger.error(f"Ошибка загрузки фотосессий (type={ps_type}): {e}")
+        await callback.answer("⚠️ Не удалось загрузить фотосессии. Попробуй позже.")
+        return
+
+    type_label = PS_TYPES.get(ps_type, ps_type)
+
+    if not photosessions:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="ps_back_to_types")],
+        ])
+        try:
+            await callback.message.edit_text(
+                f"{type_label} — пока нет доступных фотосессий. Заходи позже!",
+                reply_markup=keyboard,
+            )
+        except Exception:
+            await callback.message.answer(
+                f"{type_label} — пока нет доступных фотосессий. Заходи позже!",
+                reply_markup=keyboard,
+            )
+        await callback.answer()
+        return
+
+    try:
+        await callback.message.edit_text(
+            f"{type_label} — выбери фотосессию 📸👇",
+            reply_markup=_photosession_list_keyboard(photosessions, ps_type),
+        )
+    except Exception:
+        await callback.message.answer(
+            f"{type_label} — выбери фотосессию 📸👇",
+            reply_markup=_photosession_list_keyboard(photosessions, ps_type),
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda cb: cb.data == "ps_back_to_types")
+async def handle_back_to_types(callback: CallbackQuery, state: FSMContext):
+    """Возврат к выбору типа фотосессии."""
+    try:
+        await callback.message.edit_text(
+            "Выберите тип фотосессии:",
+            reply_markup=_type_selection_keyboard(),
+        )
+    except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
+            "Выберите тип фотосессии:",
+            reply_markup=_type_selection_keyboard(),
+        )
+    await callback.answer()
 
 
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("ps_view_"))
-async def handle_photosession_view(callback: CallbackQuery, analytics: AnalyticsClient):
+async def handle_photosession_view(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
     photosession_id = int(callback.data.split("_")[2])
 
+    # Получаем тип из state data
+    data = await state.get_data()
+    ps_type = data.get("ps_type")
+
     try:
-        photosessions = await backend.get_photosessions()
+        photosessions = await backend.get_photosessions(type=ps_type)
     except Exception as e:
         logger.error(f"Ошибка загрузки фотосессий: {e}")
         await callback.answer("⚠️ Не удалось загрузить фотосессию.")
@@ -49,7 +144,11 @@ async def handle_photosession_view(callback: CallbackQuery, analytics: Analytics
         await callback.answer("⚠️ Фотосессия не найдена.")
         return
 
-    await analytics.track("photosession_viewed", user_id=str(callback.from_user.id), properties={"photosession_id": photosession_id})
+    await analytics.track("photosession_viewed", user_id=str(callback.from_user.id), properties={"photosession_id": photosession_id, "type": ps_type})
+
+    # Сохраняем тип фотосессии (может быть из самой фотосессии или из выбора)
+    actual_type = ps.get("type", ps_type)
+    await state.update_data(ps_type=actual_type, photosession_id=photosession_id)
 
     name = ps.get("name", f"Фотосессия {photosession_id}")
     description = ps.get("description", "")
@@ -83,23 +182,36 @@ async def handle_photosession_view(callback: CallbackQuery, analytics: Analytics
 
 
 @router.callback_query(lambda cb: cb.data == "ps_back")
-async def handle_back(callback: CallbackQuery):
+async def handle_back(callback: CallbackQuery, state: FSMContext):
+    """Назад к списку фотосессий выбранного типа."""
+    data = await state.get_data()
+    ps_type = data.get("ps_type")
+
     try:
-        photosessions = await backend.get_photosessions()
+        photosessions = await backend.get_photosessions(type=ps_type)
     except Exception as e:
         logger.error(f"Ошибка загрузки фотосессий: {e}")
         await callback.answer("⚠️ Ошибка. Попробуй позже.")
         return
 
-    buttons = []
-    for ps in photosessions:
-        name = ps.get("name") or f"Фотосессия {ps['id']}"
-        buttons.append([InlineKeyboardButton(text=name, callback_data=f"ps_view_{ps['id']}")])
+    type_label = PS_TYPES.get(ps_type, ps_type or "")
 
     try:
         await callback.message.delete()
     except Exception:
         pass
 
-    await callback.message.answer("Выбери фотосессию 📸👇", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    if not photosessions:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="ps_back_to_types")],
+        ])
+        await callback.message.answer(
+            f"{type_label} — пока нет доступных фотосессий.",
+            reply_markup=keyboard,
+        )
+    else:
+        await callback.message.answer(
+            f"{type_label} — выбери фотосессию 📸👇",
+            reply_markup=_photosession_list_keyboard(photosessions, ps_type),
+        )
     await callback.answer()

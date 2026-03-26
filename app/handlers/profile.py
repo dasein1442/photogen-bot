@@ -33,21 +33,25 @@ async def handle_profile(message: Message, analytics: AnalyticsClient):
         user_data = await backend.get_user(telegram_id=message.from_user.id)
         generations = user_data.get("generations_remaining", 0)
         profile_photo_id = user_data.get("user", {}).get("profile_photo_id")
+        additional_photo_id = user_data.get("user", {}).get("additional_photo_id")
     except Exception as e:
         logger.error(f"Ошибка получения данных профиля: {e}")
         generations = "?"
         profile_photo_id = None
+        additional_photo_id = None
         user_data = {}
 
     await analytics.track("profile_viewed", user_id=str(message.from_user.id), properties={"generations_remaining": user_data.get("generations_remaining", 0)})
 
     first_name = message.from_user.first_name or "—"
     photo_status = "установлено ✅" if profile_photo_id else "не установлено"
+    additional_photo_status = "установлено ✅" if additional_photo_id else "не установлено"
 
     profile_text = (
         f"👤  *{first_name}*\n"
         "━━━━━━━━━━━━━━━\n"
         f"📷  Фото:  {photo_status}\n"
+        f"📷  Фото партнёра:  {additional_photo_status}\n"
         f"💎  Генерации:  *{generations}*\n"
     )
 
@@ -67,6 +71,28 @@ async def handle_set_new_photo(message: Message, state: FSMContext):
         "После этого нейросеть проведет модерацию фотографии. Это займет 5 секунд. "
         "Это нужно, чтобы убедиться, что ты соблюдаешь все условия ниже, "
         "ведь плохая фотография = плохие генерации!\n\n"
+        "**Несколько важных моментов к фото:**\n"
+        "• Используй крупный план (лучше селфи).\n"
+        "• Без других людей и животных.\n"
+        "• Лицо нейтральное или с лёгкой улыбкой.\n"
+        "• Голова прямо, без наклонов.\n"
+        "• Без очков и аксессуаров на лице.\n"
+        "• Хорошее освещение — залог качественного результата."
+    )
+
+    await message.answer(
+        photo_instructions_text,
+        parse_mode="Markdown",
+    )
+
+
+@router.message(F.text == "Установить фото партнёра")
+async def handle_set_partner_photo(message: Message, state: FSMContext):
+    await state.set_state(PhotoUploadStates.waiting_for_additional_photo)
+
+    photo_instructions_text = (
+        "📸 Загрузите фото вашего партнёра (мужчины)\n\n"
+        "Это фото будет использоваться для мужских и парных фотосессий.\n\n"
         "**Несколько важных моментов к фото:**\n"
         "• Используй крупный план (лучше селфи).\n"
         "• Без других людей и животных.\n"
