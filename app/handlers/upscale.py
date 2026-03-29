@@ -85,6 +85,7 @@ async def _do_upscale(
     t_total = time.monotonic()
     if telegram_id is None:
         telegram_id = message.from_user.id
+    assert telegram_id is not None
 
     await message.answer("🔍 Улучшаю качество фото, подожди немного...")
 
@@ -108,6 +109,10 @@ async def _do_upscale(
 
     if gen_result.get("error") == "already_generating":
         await message.answer("⏳ Подожди — предыдущая генерация ещё в процессе.")
+        return
+
+    if gen_result.get("error") == "photo_not_found":
+        await message.answer("⚠️ Фото не найдено. Отправь его ещё раз, и я попробую снова.")
         return
 
     task_id = gen_result.get("task_id")

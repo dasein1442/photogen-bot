@@ -151,6 +151,7 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
     t_total = time.monotonic()
     if telegram_id is None:
         telegram_id = message.from_user.id
+    assert telegram_id is not None
 
     await message.answer("⏳ Начинаю генерацию, подожди немного...")
 
@@ -184,6 +185,23 @@ async def _do_generation(message: Message, photosession_id: int, telegram_id: in
 
     if gen_result.get("error") == "already_generating":
         await message.answer("⏳ Подожди — предыдущая генерация ещё в процессе.")
+        return
+
+    if gen_result.get("error") == "missing_profile_photo":
+        await message.answer(
+            "📸 Для этой фотосессии не хватает фото профиля. Загрузите его и попробуйте снова.",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        return
+
+    if gen_result.get("error") == "missing_additional_photo":
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📸 Загрузить фото партнёра", callback_data="upload_additional_photo")],
+        ])
+        await message.answer(
+            "📸 Для этой фотосессии не хватает фото партнёра. Загрузите его и попробуйте снова.",
+            reply_markup=keyboard,
+        )
         return
 
     task_id = gen_result.get("task_id")

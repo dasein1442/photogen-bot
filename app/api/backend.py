@@ -19,6 +19,17 @@ class BackendClient:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {config.API_SECRET_TOKEN}"}
 
+    async def _read_error_payload(self, resp: aiohttp.ClientResponse) -> tuple[str, str | None]:
+        body = await resp.text()
+        detail = None
+        try:
+            payload = await resp.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict) and isinstance(payload.get("detail"), str):
+            detail = payload["detail"]
+        return body, detail
+
     async def register_user(
         self, telegram_id: int, username: str | None, first_name: str | None, last_name: str | None,
         source: str | None = None,
@@ -148,8 +159,12 @@ class BackendClient:
                 if resp.status == 429:
                     return {"error": "already_generating"}
                 if resp.status >= 400:
-                    body = await resp.text()
+                    body, detail = await self._read_error_payload(resp)
                     logger.error(f"generate_photo failed: status={resp.status}, body={body}")
+                    if resp.status == 400 and detail == "Additional photo not set":
+                        return {"error": "missing_additional_photo"}
+                    if resp.status == 400 and detail == "Profile photo not set":
+                        return {"error": "missing_profile_photo"}
                     raise aiohttp.ClientResponseError(
                         resp.request_info, resp.history,
                         status=resp.status, message=body,
@@ -184,8 +199,10 @@ class BackendClient:
                 if resp.status == 429:
                     return {"error": "already_generating"}
                 if resp.status >= 400:
-                    body = await resp.text()
+                    body, detail = await self._read_error_payload(resp)
                     logger.error(f"generate_custom_prompt failed: status={resp.status}, body={body}")
+                    if resp.status == 400 and detail == "Provide 1 or 2 photos":
+                        return {"error": "invalid_photo_count"}
                     raise aiohttp.ClientResponseError(
                         resp.request_info, resp.history,
                         status=resp.status, message=body,
@@ -204,8 +221,10 @@ class BackendClient:
                 if resp.status == 429:
                     return {"error": "already_generating"}
                 if resp.status >= 400:
-                    body = await resp.text()
+                    body, detail = await self._read_error_payload(resp)
                     logger.error(f"generate_prompt failed: status={resp.status}, body={body}")
+                    if resp.status == 400 and detail == "Provide 1 or 2 photos":
+                        return {"error": "invalid_photo_count"}
                     raise aiohttp.ClientResponseError(
                         resp.request_info, resp.history,
                         status=resp.status, message=body,
@@ -240,8 +259,10 @@ class BackendClient:
                 if resp.status == 429:
                     return {"error": "already_generating"}
                 if resp.status >= 400:
-                    body = await resp.text()
+                    body, detail = await self._read_error_payload(resp)
                     logger.error(f"upscale_photo failed: status={resp.status}, body={body}")
+                    if resp.status == 400 and detail == "Photo not found":
+                        return {"error": "photo_not_found"}
                     raise aiohttp.ClientResponseError(
                         resp.request_info, resp.history,
                         status=resp.status, message=body,
@@ -311,7 +332,7 @@ class BackendClient:
     async def check_yookassa_payment(self, telegram_id: int, yookassa_id: str | None = None) -> dict:
         """GET /payments/yookassa/status — проверить статус платежа."""
         async with aiohttp.ClientSession() as session:
-            params = {"telegram_id": telegram_id}
+            params: dict[str, str | int] = {"telegram_id": telegram_id}
             if yookassa_id:
                 params["yookassa_id"] = yookassa_id
             async with session.get(
