@@ -18,6 +18,17 @@ def get_more_examples_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def get_gender_choice_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👨 Мужской", callback_data="onboarding_gender_male"),
+                InlineKeyboardButton(text="👩 Женский", callback_data="onboarding_gender_female"),
+            ],
+        ]
+    )
+
+
 def get_next_step_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

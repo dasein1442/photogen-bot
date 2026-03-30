@@ -42,6 +42,7 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
     photosession_id = data.get("photosession_id")
     random_mode = data.get("random_mode", False)
     onboarding_mode = data.get("onboarding_mode", False)
+    onboarding_gender = data.get("onboarding_gender", "female")
     if onboarding_mode:
         upload_source = "onboarding"
     elif random_mode:
@@ -86,7 +87,12 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
 
     if onboarding_mode:
         # Пришли из онбординга — запускаем генерацию по онбординговому пресету
-        await _do_onboarding_generation(message, state=state, analytics=analytics)
+        await _do_onboarding_generation(
+            message,
+            state=state,
+            analytics=analytics,
+            onboarding_gender=onboarding_gender,
+        )
     elif random_mode:
         # Пришли из flow случайной генерации
         await _do_random_generation(message, analytics=analytics)
@@ -105,15 +111,29 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
         )
 
 
-async def _do_onboarding_generation(message: Message, state: FSMContext | None = None, telegram_id: int | None = None, analytics: AnalyticsClient | None = None):
+async def _do_onboarding_generation(
+    message: Message,
+    state: FSMContext | None = None,
+    telegram_id: int | None = None,
+    analytics: AnalyticsClient | None = None,
+    onboarding_gender: str | None = None,
+):
     """Онбординговая генерация по фиксированному пресету → поллинг → отправка результата → пейволл."""
     if telegram_id is None:
         telegram_id = message.from_user.id
 
+    if onboarding_gender is None:
+        onboarding_gender = "female"
+    if state is not None and onboarding_gender == "female":
+        data = await state.get_data()
+        onboarding_gender = data.get("onboarding_gender", "female")
+
+    result_caption = "😍 Смотри, как круто ты получилась!" if onboarding_gender == "female" else "😍 Смотри, как круто ты получился!"
+
     await message.answer("⏳ Создаю твоё первое фото, подожди немного...")
 
     try:
-        gen_result = await backend.generate_onboarding_photo(telegram_id=telegram_id)
+        gen_result = await backend.generate_onboarding_photo(telegram_id=telegram_id, gender=onboarding_gender)
     except Exception as e:
         logger.error(f"Ошибка запуска онбординговой генерации: {e}", exc_info=True)
         await message.answer("⚠️ Не удалось запустить генерацию. Попробуй позже.")
@@ -193,7 +213,7 @@ async def _do_onboarding_generation(message: Message, state: FSMContext | None =
 
         # Show result message with like/dislike feedback buttons
         await message.answer(
-            "😍 Смотри, какая ты получилась!\n\n"
+            f"{result_caption}\n\n"
             "Это только проба — дальше будет ещё круче!\n\n"
             "Как тебе результат?",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
