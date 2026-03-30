@@ -79,7 +79,7 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
         )
     except Exception as e:
         logger.error(f"Ошибка установки profile photo: {e}", exc_info=True)
-        await message.answer("⚠️ Не удалось сохранить фото профиля. Попробуй позже.")
+        await message.answer("⚠️ Не удалось сохранить женское фото. Попробуй позже.")
         return
 
     await state.clear()
@@ -96,11 +96,8 @@ async def _handle_upload(message: Message, state: FSMContext, analytics: Analyti
     else:
         # Пришли из профиля — просто сообщаем об успехе
         await message.answer(
-            "Готово ✅\n\n"
-            "Бот обработал твои фотографии, и теперь ты можешь создавать "
-            "снимки с собой в любом образе и месте.\n\n"
-            "Попробуй свой первый запрос прямо сейчас, выбирай любой доступный "
-            "инструмент, и генерируй шикарные фотографии 👇",
+            "✅ Женское фото успешно установлено!\n\n"
+            "Теперь ты можешь генерировать женские и парные фотосессии.",
             reply_markup=get_main_menu_keyboard(),
         )
 
@@ -268,7 +265,7 @@ async def handle_additional_photo_upload(message: Message, state: FSMContext, an
         )
     except Exception as e:
         logger.error(f"Ошибка установки additional photo: {e}", exc_info=True)
-        await message.answer("⚠️ Не удалось сохранить фото партнёра. Попробуй позже.")
+        await message.answer("⚠️ Не удалось сохранить мужское фото. Попробуй позже.")
         return
 
     data = await state.get_data()
@@ -279,11 +276,11 @@ async def handle_additional_photo_upload(message: Message, state: FSMContext, an
 
     if photosession_id:
         # Пришли из flow генерации — запускаем генерацию автоматически
-        await message.answer("✅ Фото партнёра установлено!")
+        await message.answer("✅ Мужское фото установлено!")
         await _do_generation(message, photosession_id, analytics=analytics)
     else:
         await message.answer(
-            "✅ Фото партнёра (мужчины) успешно установлено!\n\n"
+            "✅ Мужское фото успешно установлено!\n\n"
             "Теперь ты можешь генерировать мужские и парные фотосессии.",
             reply_markup=get_main_menu_keyboard(),
         )

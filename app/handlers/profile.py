@@ -50,8 +50,8 @@ async def handle_profile(message: Message, analytics: AnalyticsClient):
     profile_text = (
         f"👤  *{first_name}*\n"
         "━━━━━━━━━━━━━━━\n"
-        f"📷  Фото:  {photo_status}\n"
-        f"📷  Фото партнёра:  {additional_photo_status}\n"
+        f"📷  Женское фото:  {photo_status}\n"
+        f"📷  Мужское фото:  {additional_photo_status}\n"
         f"💎  Генерации:  *{generations}*\n"
     )
 
@@ -62,15 +62,13 @@ async def handle_profile(message: Message, analytics: AnalyticsClient):
     )
 
 
-@router.message(F.text == "Установить новое фото")
+@router.message(F.text == "Установить женское фото")
 async def handle_set_new_photo(message: Message, state: FSMContext):
     await state.set_state(PhotoUploadStates.waiting_for_main_photo)
 
     photo_instructions_text = (
-        "Отправьте фотографию в чат!\n\n"
-        "После этого нейросеть проведет модерацию фотографии. Это займет 5 секунд. "
-        "Это нужно, чтобы убедиться, что ты соблюдаешь все условия ниже, "
-        "ведь плохая фотография = плохие генерации!\n\n"
+        "📸 Загрузите женское фото\n\n"
+        "Это фото будет использоваться для женских и парных фотосессий.\n\n"
         "**Несколько важных моментов к фото:**\n"
         "• Используй крупный план (лучше селфи).\n"
         "• Без других людей и животных.\n"
@@ -86,12 +84,12 @@ async def handle_set_new_photo(message: Message, state: FSMContext):
     )
 
 
-@router.message(F.text == "Установить фото партнёра")
+@router.message(F.text == "Установить мужское фото")
 async def handle_set_partner_photo(message: Message, state: FSMContext):
     await state.set_state(PhotoUploadStates.waiting_for_additional_photo)
 
     photo_instructions_text = (
-        "📸 Загрузите фото вашего партнёра (мужчины)\n\n"
+        "📸 Загрузите мужское фото\n\n"
         "Это фото будет использоваться для мужских и парных фотосессий.\n\n"
         "**Несколько важных моментов к фото:**\n"
         "• Используй крупный план (лучше селфи).\n"
