@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 
 from app.api.backend import backend
-from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard
+from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard, get_gender_choice_keyboard
 from app.services.analytics_sdk import AnalyticsClient
 from app.states.photo import PhotoUploadStates
 
@@ -75,8 +75,11 @@ async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FS
 
 async def _show_upload_photo_prompt(message: Message, state: FSMContext):
     """Show the 'upload photo' prompt for returning users."""
+    data = await state.get_data()
+    onboarding_gender = data.get("onboarding_gender", "female")
+    gender_label = "женский" if onboarding_gender == "female" else "мужской"
     try_now_text = (
-        "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
+        f"🔥 Давай покажу твой первый {gender_label} образ!\n\n"
         "Отправь 1 фото — лучше всего селфи с хорошим светом, без фильтров и других людей."
     )
 
@@ -88,7 +91,7 @@ async def _show_upload_photo_prompt(message: Message, state: FSMContext):
     else:
         await message.answer(try_now_text)
 
-    await state.set_data({"onboarding_mode": True})
+    await state.update_data(onboarding_mode=True, onboarding_gender=onboarding_gender)
     await state.set_state(PhotoUploadStates.waiting_for_main_photo)
 
 
@@ -284,9 +287,33 @@ async def handle_more_examples(callback: CallbackQuery, analytics: AnalyticsClie
 @router.callback_query(lambda callback: callback.data == "try_now")
 async def handle_try_now(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
     await analytics.track("onboarding_try_now_clicked", user_id=str(callback.from_user.id))
+    await state.update_data(onboarding_mode=True)
+
+    await callback.message.answer(
+        "<b>Кого примеряем первым?</b>\n\n"
+        "Выбери вариант, и я сразу покажу подходящий стиль без лишних шагов.",
+        reply_markup=get_gender_choice_keyboard(),
+        parse_mode="HTML",
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(lambda callback: callback.data in {"onboarding_gender_female", "onboarding_gender_male"})
+async def handle_onboarding_gender_choice(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
+    onboarding_gender = callback.data.removeprefix("onboarding_gender_")
+
+    await analytics.track(
+        "onboarding_gender_selected",
+        user_id=str(callback.from_user.id),
+        properties={"gender": onboarding_gender},
+    )
+
+    await state.update_data(onboarding_mode=True, onboarding_gender=onboarding_gender)
+
     try_now_text = (
-        "🔥 Давай посмотрим, как ты выглядишь в AI-версии!\n\n"
-        "Отправь 1 фото — лучше всего селфи с хорошим светом, без фильтров и других людей."
+        "🔥 Отлично, теперь пришли одно селфи.\n\n"
+        "Лучше всего фото с хорошим светом, без фильтров и других людей."
     )
 
     if TRY_NOW_IMAGE_PATH.exists():
@@ -295,11 +322,6 @@ async def handle_try_now(callback: CallbackQuery, state: FSMContext, analytics: 
             caption=try_now_text,
         )
     else:
-        await callback.message.answer(
-            try_now_text,
-        )
-
-    await state.set_data({"onboarding_mode": True})
-    await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+        await callback.message.answer(try_now_text)
 
     await callback.answer()

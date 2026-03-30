@@ -171,10 +171,10 @@ class BackendClient:
                     )
                 return await resp.json()
 
-    async def generate_onboarding_photo(self, telegram_id: int) -> dict:
+    async def generate_onboarding_photo(self, telegram_id: int, gender: str = "female") -> dict:
         """POST /photos/generate-onboarding — онбординговая генерация по фиксированному пресету."""
         async with aiohttp.ClientSession() as session:
-            payload = {"telegram_id": telegram_id}
+            payload = {"telegram_id": telegram_id, "gender": gender}
             async with session.post(
                 f"{self.base_url}/photos/generate-onboarding", json=payload, headers=self._headers()
             ) as resp:
