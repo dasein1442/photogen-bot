@@ -290,10 +290,8 @@ async def handle_try_now(callback: CallbackQuery, state: FSMContext, analytics: 
     await state.update_data(onboarding_mode=True)
 
     await callback.message.answer(
-        "<b>Кого примеряем первым?</b>\n\n"
-        "Выбери пол, чтобы мы подстроили первый результат под подходящий образ.",
+        "Выбери пол, чтобы мы сразу подстроили первый результат под подходящий образ.",
         reply_markup=get_gender_choice_keyboard(),
-        parse_mode="HTML",
     )
 
     await callback.answer()
