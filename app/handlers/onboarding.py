@@ -309,6 +309,13 @@ async def handle_onboarding_gender_choice(callback: CallbackQuery, state: FSMCon
         properties={"gender": onboarding_gender},
     )
 
+    try:
+        await backend.set_gender(callback.from_user.id, onboarding_gender)
+    except Exception as e:
+        logger.error(f"Ошибка сохранения onboarding gender для {callback.from_user.id}: {e}", exc_info=True)
+        await callback.answer("⚠️ Не удалось сохранить выбор. Попробуй ещё раз.", show_alert=True)
+        return
+
     await state.update_data(onboarding_mode=True, onboarding_gender=onboarding_gender)
 
     try_now_text = (

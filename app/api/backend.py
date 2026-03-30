@@ -143,6 +143,16 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def set_gender(self, telegram_id: int, gender: str) -> dict:
+        """PUT /users/gender — сохранение пола пользователя."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "gender": gender}
+            async with session.put(
+                f"{self.base_url}/users/gender", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
     async def generate_photo(self, telegram_id: int, photosession_id: int) -> dict:
         """POST /photos/generate — запуск генерации."""
         async with aiohttp.ClientSession() as session:
