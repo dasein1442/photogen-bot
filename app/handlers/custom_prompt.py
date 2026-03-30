@@ -104,6 +104,16 @@ async def handle_photoshop_photo(message: Message, state: FSMContext, analytics:
         )
 
 
+@router.message(F.text, PhotoUploadStates.waiting_for_photoshop_photo)
+async def handle_text_instead_of_photoshop_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
+    """Пользователь отправил текст вместо фото — напоминаем."""
+    menu_buttons = ("📸 Создать фотосессию", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
+    if message.text.startswith("/") or message.text in menu_buttons:
+        await state.clear()
+        return
+    await message.answer("📎 Сначала отправь фото, а потом напиши, что хочешь изменить.")
+
+
 @router.message(F.photo, PhotoUploadStates.waiting_for_photoshop_photo_or_prompt)
 async def handle_second_photoshop_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Пользователь отправил второе фото."""
