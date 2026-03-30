@@ -329,4 +329,6 @@ async def handle_onboarding_gender_choice(callback: CallbackQuery, state: FSMCon
     else:
         await callback.message.answer(try_now_text)
 
+    await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+
     await callback.answer()
