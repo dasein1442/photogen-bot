@@ -16,6 +16,16 @@ from app.states.photo import PhotoUploadStates
 logger = logging.getLogger(__name__)
 router = Router()
 
+ONBOARDING_PUSH_SLUGS = {
+    "onboarding_reminder_1",
+    "onboarding_reminder_2",
+}
+PAYMENT_PUSH_OFFERS = {
+    "onboarding_paywall_reminder_1": {"generations": 20, "rubles": 289, "source": "onboarding_paywall_reminder_1"},
+    "onboarding_paywall_reminder_2": {"generations": 20, "rubles": 189, "source": "onboarding_paywall_reminder_2"},
+    "first_payment_discount": {"generations": 20, "rubles": 289, "source": "first_payment_discount"},
+}
+
 WELCOME_PROMO_IMAGE_DIR = Path(__file__).resolve().parents[1] / "assets"
 WELCOME_PROMO_IMAGE_CANDIDATES = (
     "welcome_promo.png",
@@ -95,6 +105,32 @@ async def _show_upload_photo_prompt(message: Message, state: FSMContext):
     await state.set_state(PhotoUploadStates.waiting_for_main_photo)
 
 
+async def _show_gender_choice_prompt(message: Message, state: FSMContext):
+    await state.update_data(onboarding_mode=True)
+    await message.answer(
+        "Выбери пол, чтобы мы сразу подстроили первый результат под подходящий образ.",
+        reply_markup=get_gender_choice_keyboard(),
+    )
+
+
+async def _show_selfie_prompt(message: Message, state: FSMContext, onboarding_gender: str):
+    try_now_text = (
+        "🔥 Отлично, теперь пришли одно селфи.\n\n"
+        "Лучше всего фото с хорошим светом, без фильтров и других людей."
+    )
+
+    if TRY_NOW_IMAGE_PATH.exists():
+        await message.answer_photo(
+            photo=FSInputFile(str(TRY_NOW_IMAGE_PATH)),
+            caption=try_now_text,
+        )
+    else:
+        await message.answer(try_now_text)
+
+    await state.update_data(onboarding_mode=True, onboarding_gender=onboarding_gender)
+    await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+
+
 async def _register_user(message: Message, source: str | None = None) -> dict:
     """Register user on backend (idempotent). Returns result dict or empty on error."""
     user = message.from_user
@@ -127,6 +163,29 @@ async def _check_onboarding_paywall(message: Message, state: FSMContext) -> bool
     except Exception:
         pass
     return False
+
+
+async def _resume_onboarding_from_user_state(message: Message, state: FSMContext) -> None:
+    try:
+        user_data = await backend.get_user(telegram_id=message.from_user.id)
+    except Exception as e:
+        logger.error(f"Не удалось загрузить пользователя для onboarding resume {message.from_user.id}: {e}")
+        await _show_gender_choice_prompt(message, state)
+        return
+
+    user_info = user_data.get("user", {})
+    if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
+        await _send_onboarding_paywall(message, message.from_user.id, state)
+        return
+
+    gender = user_info.get("gender")
+    await state.clear()
+
+    if gender in {"female", "male"}:
+        await _show_selfie_prompt(message, state, gender)
+        return
+
+    await _show_gender_choice_prompt(message, state)
 
 
 async def _dedup_start(message: Message, state: FSMContext) -> bool:
@@ -255,11 +314,12 @@ async def _handle_start_photosessions(message: Message, state: FSMContext, analy
 
 
 async def _handle_start_push(message: Message, state: FSMContext, analytics: AnalyticsClient, deep_link: str):
-    """Deep link: p_<slug> — push click-through, then route to photosessions."""
+    """Deep link: p_<slug> — route by push type."""
     await _register_user(message, source=None)
+    push_slug = deep_link.removeprefix("p_")
 
     await analytics.track("push_click", user_id=str(message.from_user.id), properties={
-        "push_slug": deep_link.removeprefix("p_"),
+        "push_slug": push_slug,
         "deep_link": deep_link,
     })
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
@@ -267,6 +327,23 @@ async def _handle_start_push(message: Message, state: FSMContext, analytics: Ana
     })
 
     await state.clear()
+
+    if push_slug in ONBOARDING_PUSH_SLUGS:
+        await _resume_onboarding_from_user_state(message, state)
+        return
+
+    payment_offer = PAYMENT_PUSH_OFFERS.get(push_slug)
+    if payment_offer:
+        from app.handlers.payment import _create_and_send_payment
+        await _create_and_send_payment(
+            message,
+            message.from_user.id,
+            generations=payment_offer["generations"],
+            rubles=payment_offer["rubles"],
+            analytics=analytics,
+            source=payment_offer["source"],
+        )
+        return
 
     if await _check_onboarding_paywall(message, state):
         return
@@ -329,12 +406,7 @@ async def handle_more_examples(callback: CallbackQuery, analytics: AnalyticsClie
 @router.callback_query(lambda callback: callback.data == "try_now")
 async def handle_try_now(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
     await analytics.track("onboarding_try_now_clicked", user_id=str(callback.from_user.id))
-    await state.update_data(onboarding_mode=True)
-
-    await callback.message.answer(
-        "Выбери пол, чтобы мы сразу подстроили первый результат под подходящий образ.",
-        reply_markup=get_gender_choice_keyboard(),
-    )
+    await _show_gender_choice_prompt(callback.message, state)
 
     await callback.answer()
 
@@ -358,19 +430,6 @@ async def handle_onboarding_gender_choice(callback: CallbackQuery, state: FSMCon
 
     await state.update_data(onboarding_mode=True, onboarding_gender=onboarding_gender)
 
-    try_now_text = (
-        "🔥 Отлично, теперь пришли одно селфи.\n\n"
-        "Лучше всего фото с хорошим светом, без фильтров и других людей."
-    )
-
-    if TRY_NOW_IMAGE_PATH.exists():
-        await callback.message.answer_photo(
-            photo=FSInputFile(str(TRY_NOW_IMAGE_PATH)),
-            caption=try_now_text,
-        )
-    else:
-        await callback.message.answer(try_now_text)
-
-    await state.set_state(PhotoUploadStates.waiting_for_main_photo)
+    await _show_selfie_prompt(callback.message, state, onboarding_gender)
 
     await callback.answer()
