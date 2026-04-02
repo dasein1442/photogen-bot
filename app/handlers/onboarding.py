@@ -156,6 +156,10 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
         await _handle_start_buy(message, state, analytics)
     elif deep_link == "discount":
         await _handle_start_discount(message, state, analytics)
+    elif deep_link in {"photosessions", "photosession"}:
+        await _handle_start_photosessions(message, state, analytics, deep_link)
+    elif deep_link and deep_link.startswith("p_"):
+        await _handle_start_push(message, state, analytics, deep_link)
     elif deep_link and deep_link.startswith("c_"):
         await _handle_start_campaign(message, state, analytics, deep_link)
     else:
@@ -219,6 +223,44 @@ async def _handle_start_campaign(message: Message, state: FSMContext, analytics:
 
     await analytics.track("campaign_click", user_id=str(message.from_user.id), properties={
         "campaign": deep_link,
+    })
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
+        "deep_link": deep_link, "source": None,
+    })
+
+    await state.clear()
+
+    if await _check_onboarding_paywall(message, state):
+        return
+
+    from app.handlers.photosessions import handle_photosessions
+    await handle_photosessions(message, analytics)
+
+
+async def _handle_start_photosessions(message: Message, state: FSMContext, analytics: AnalyticsClient, deep_link: str):
+    """Deep link: photosessions — open photosessions flow instead of welcome."""
+    await _register_user(message, source=None)
+
+    await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
+        "deep_link": deep_link, "source": None,
+    })
+
+    await state.clear()
+
+    if await _check_onboarding_paywall(message, state):
+        return
+
+    from app.handlers.photosessions import handle_photosessions
+    await handle_photosessions(message, analytics)
+
+
+async def _handle_start_push(message: Message, state: FSMContext, analytics: AnalyticsClient, deep_link: str):
+    """Deep link: p_<slug> — push click-through, then route to photosessions."""
+    await _register_user(message, source=None)
+
+    await analytics.track("push_click", user_id=str(message.from_user.id), properties={
+        "push_slug": deep_link.removeprefix("p_"),
+        "deep_link": deep_link,
     })
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
         "deep_link": deep_link, "source": None,
