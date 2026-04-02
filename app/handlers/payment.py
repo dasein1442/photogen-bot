@@ -103,6 +103,14 @@ async def start_payment_flow(message, telegram_id: int, analytics: AnalyticsClie
 async def start_onboarding_payment(message, telegram_id: int, state: FSMContext, analytics: AnalyticsClient | None = None):
     """Create onboarding payment directly (single tier, no selection needed)."""
     try:
+        user_data = await backend.get_user(telegram_id=telegram_id)
+        if user_data.get("user", {}).get("has_purchased"):
+            await start_payment_flow(message, telegram_id, analytics=analytics)
+            return
+    except Exception as e:
+        logger.error(f"Ошибка получения пользователя перед онбординг-оплатой: {e}")
+
+    try:
         price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
         tier = price_data["tiers"][0]
         rubles = tier.get("rubles", 0)
