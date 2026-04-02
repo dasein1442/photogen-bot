@@ -196,9 +196,11 @@ async def _do_onboarding_generation(
         if analytics:
             await analytics.track("onboarding_result_delivered", user_id=str(telegram_id), properties={"task_id": task_id})
 
-        # Mark onboarding completed and start paywall nudge notifications
+        # Do not reopen the onboarding paywall for users who already purchased.
         try:
-            await backend.notify_onboarding_paywall(telegram_id)
+            user_data = await backend.get_user(telegram_id=telegram_id)
+            if not user_data.get("user", {}).get("has_purchased"):
+                await backend.notify_onboarding_paywall(telegram_id)
         except Exception as e:
             logger.error(f"Failed to mark onboarding completed: {e}")
 
