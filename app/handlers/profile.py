@@ -64,6 +64,7 @@ async def handle_profile(message: Message, analytics: AnalyticsClient):
 
 @router.message(F.text == "Установить женское фото")
 async def handle_set_new_photo(message: Message, state: FSMContext):
+    await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_main_photo)
 
     photo_instructions_text = (
@@ -86,6 +87,7 @@ async def handle_set_new_photo(message: Message, state: FSMContext):
 
 @router.message(F.text == "Установить мужское фото")
 async def handle_set_partner_photo(message: Message, state: FSMContext):
+    await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_additional_photo)
 
     photo_instructions_text = (
