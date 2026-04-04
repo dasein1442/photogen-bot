@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from datetime import timedelta
@@ -11,10 +12,12 @@ from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 from app.api.backend import backend
 from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard, get_gender_choice_keyboard
 from app.services.analytics_sdk import AnalyticsClient
+from app.services.yandex_metrika import metrika
 from app.states.photo import PhotoUploadStates
 
 logger = logging.getLogger(__name__)
 router = Router()
+METRIKA_DEEP_LINK_PREFIX = "yd_"
 
 ONBOARDING_PUSH_SLUGS = {
     "onboarding_reminder_1",
@@ -46,6 +49,33 @@ def _parse_deep_link(message: Message) -> str | None:
     """Extract deep link argument from /start command text."""
     parts = (message.text or "").split(maxsplit=1)
     return parts[1] if len(parts) > 1 else None
+
+
+def _parse_metrika_deep_link(deep_link: str | None) -> tuple[str | None, str | None]:
+    """Extract source and ClientId from yd_<source>_<client_id> deep links."""
+    if not deep_link or not deep_link.startswith(METRIKA_DEEP_LINK_PREFIX):
+        return deep_link, None
+
+    payload = deep_link.removeprefix(METRIKA_DEEP_LINK_PREFIX)
+    source, separator, client_id = payload.rpartition("_")
+    if not separator or not source or not client_id.isdigit():
+        logger.warning("Malformed Metrika deep link: %r", deep_link[:80])
+        return "landing", None
+
+    return source, client_id
+
+
+def _analytics_deep_link(deep_link: str | None, source: str | None, client_id: str | None) -> str:
+    if client_id:
+        return f"{METRIKA_DEEP_LINK_PREFIX}{source or 'landing'}"
+    return deep_link or "none"
+
+
+async def _report_bot_started_to_metrika(telegram_id: int, source: str | None, client_id: str) -> None:
+    try:
+        await metrika.send_bot_started(client_id=client_id, source=source, telegram_id=telegram_id)
+    except Exception as exc:
+        logger.error("Failed to upload bot_started to Yandex Metrika for tg=%s: %s", telegram_id, exc, exc_info=True)
 
 
 async def _show_welcome(message: Message):
@@ -203,7 +233,15 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
     """Single /start handler — routes by deep link argument value."""
     user = message.from_user
     deep_link = _parse_deep_link(message)
-    logger.info(f"handle_start: user={user.id}, deep_link={deep_link!r}")
+    parsed_source, metrika_client_id = _parse_metrika_deep_link(deep_link)
+    safe_deep_link = deep_link if not metrika_client_id else f"{METRIKA_DEEP_LINK_PREFIX}{parsed_source}_<client_id>"
+    logger.info(
+        "handle_start: user=%s, deep_link=%r, source=%r, metrika_client_id=%s",
+        user.id,
+        safe_deep_link,
+        parsed_source,
+        bool(metrika_client_id),
+    )
 
     if await _dedup_start(message, state):
         logger.info(f"handle_start SKIPPED (dedup): user={user.id}")
@@ -222,7 +260,7 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
     elif deep_link and deep_link.startswith("c_"):
         await _handle_start_campaign(message, state, analytics, deep_link)
     else:
-        await _handle_start_generic(message, state, analytics, deep_link)
+        await _handle_start_generic(message, state, analytics, deep_link, parsed_source, metrika_client_id)
 
 
 async def _handle_start_upload_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
@@ -352,20 +390,35 @@ async def _handle_start_push(message: Message, state: FSMContext, analytics: Ana
     await handle_photosessions(message, analytics)
 
 
-async def _handle_start_generic(message: Message, state: FSMContext, analytics: AnalyticsClient, deep_link: str | None):
-    """Default /start — welcome screen. Deep link (e.g. yd1) used as source for tracking."""
+async def _handle_start_generic(
+    message: Message,
+    state: FSMContext,
+    analytics: AnalyticsClient,
+    deep_link: str | None,
+    parsed_source: str | None = None,
+    metrika_client_id: str | None = None,
+):
+    """Default /start — welcome screen. External deep link is used as source for tracking."""
     # Internal deep links are navigation actions, not traffic sources
     _internal_links = {"photosessions", "photosession", "upload_photo", "buy", "discount"}
-    source = None if deep_link in _internal_links else deep_link
+    source = parsed_source if parsed_source is not None else deep_link
+    source = None if source in _internal_links else source
 
     result = await _register_user(message, source=source)
-    generations = result.get("generations_remaining", "?")
 
     t0 = time.monotonic()
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
-        "deep_link": deep_link or "none", "source": source,
+        "deep_link": _analytics_deep_link(deep_link, source, metrika_client_id),
+        "source": source,
+        "has_metrika_client_id": bool(metrika_client_id),
     })
     logger.info(f"[tg={message.from_user.id}] analytics.track took {time.monotonic() - t0:.2f}s")
+
+    if metrika_client_id:
+        asyncio.create_task(
+            _report_bot_started_to_metrika(message.from_user.id, source, metrika_client_id),
+            name=f"metrika-bot-started-{message.from_user.id}",
+        )
 
     # Clear any stale FSM state (e.g. onboarding_paywall) so buttons work
     await state.clear()
