@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class BackendClient:
     def __init__(self):
         self.base_url = config.BACKEND_URL.rstrip("/")
+        self.root_url = self.base_url.removesuffix("/api/v1")
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {config.API_SECRET_TOKEN}"}
@@ -46,6 +47,18 @@ class BackendClient:
                 payload["source"] = source
             async with session.post(
                 f"{self.base_url}/users/register", json=payload, headers=self._headers()
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def claim_direct_bot_start(self, token: str, telegram_id: int) -> dict:
+        """POST /tracking/direct-bot/claim — resolve direct-ad click token into yclid/source."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"token": token, "telegram_id": telegram_id}
+            async with session.post(
+                f"{self.root_url}/tracking/direct-bot/claim",
+                json=payload,
+                headers=self._headers(),
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()

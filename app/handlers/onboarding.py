@@ -18,6 +18,7 @@ from app.states.photo import PhotoUploadStates
 logger = logging.getLogger(__name__)
 router = Router()
 METRIKA_DEEP_LINK_PREFIX = "yd_"
+DIRECT_BOT_DEEP_LINK_PREFIX = "ydb_"
 
 ONBOARDING_PUSH_SLUGS = {
     "onboarding_reminder_1",
@@ -66,15 +67,41 @@ def _parse_metrika_deep_link(deep_link: str | None) -> tuple[str | None, str | N
     return source, client_id
 
 
-def _analytics_deep_link(deep_link: str | None, source: str | None, client_id: str | None) -> str:
+def _parse_direct_bot_deep_link(deep_link: str | None) -> str | None:
+    if not deep_link or not deep_link.startswith(DIRECT_BOT_DEEP_LINK_PREFIX):
+        return None
+
+    suffix = deep_link.removeprefix(DIRECT_BOT_DEEP_LINK_PREFIX)
+    if len(suffix) < 8 or not all(ch.isalnum() or ch in {"_", "-"} for ch in suffix):
+        logger.warning("Malformed direct bot deep link: %r", deep_link[:80])
+        return None
+
+    return deep_link
+
+
+def _analytics_deep_link(
+    deep_link: str | None,
+    source: str | None,
+    client_id: str | None,
+    direct_bot_token: str | None,
+) -> str:
     if client_id:
         return f"{METRIKA_DEEP_LINK_PREFIX}{source or 'landing'}"
+    if direct_bot_token:
+        return f"{DIRECT_BOT_DEEP_LINK_PREFIX}{source or 'direct'}"
     return deep_link or "none"
 
 
-async def _report_bot_started_to_metrika(telegram_id: int, source: str | None, client_id: str) -> None:
+async def _report_bot_started_to_metrika_by_client_id(telegram_id: int, source: str | None, client_id: str) -> None:
     try:
-        await metrika.send_bot_started(client_id=client_id, source=source, telegram_id=telegram_id)
+        await metrika.send_bot_started_by_client_id(client_id=client_id, source=source, telegram_id=telegram_id)
+    except Exception as exc:
+        logger.error("Failed to upload bot_started to Yandex Metrika for tg=%s: %s", telegram_id, exc, exc_info=True)
+
+
+async def _report_bot_started_to_metrika_by_yclid(telegram_id: int, source: str | None, yclid: str) -> None:
+    try:
+        await metrika.send_bot_started_by_yclid(yclid=yclid, source=source, telegram_id=telegram_id)
     except Exception as exc:
         logger.error("Failed to upload bot_started to Yandex Metrika for tg=%s: %s", telegram_id, exc, exc_info=True)
 
@@ -235,13 +262,19 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
     user = message.from_user
     deep_link = _parse_deep_link(message)
     parsed_source, metrika_client_id = _parse_metrika_deep_link(deep_link)
-    safe_deep_link = deep_link if not metrika_client_id else f"{METRIKA_DEEP_LINK_PREFIX}{parsed_source}_<client_id>"
+    direct_bot_token = _parse_direct_bot_deep_link(deep_link)
+    safe_deep_link = deep_link
+    if metrika_client_id:
+        safe_deep_link = f"{METRIKA_DEEP_LINK_PREFIX}{parsed_source}_<client_id>"
+    elif direct_bot_token:
+        safe_deep_link = f"{DIRECT_BOT_DEEP_LINK_PREFIX}<token>"
     logger.info(
-        "handle_start: user=%s, deep_link=%r, source=%r, metrika_client_id=%s",
+        "handle_start: user=%s, deep_link=%r, source=%r, metrika_client_id=%s, direct_bot_token=%s",
         user.id,
         safe_deep_link,
-        parsed_source,
+        "direct" if direct_bot_token else parsed_source,
         bool(metrika_client_id),
+        bool(direct_bot_token),
     )
 
     if await _dedup_start(message, state):
@@ -261,7 +294,15 @@ async def handle_start(message: Message, state: FSMContext, analytics: Analytics
     elif deep_link and deep_link.startswith("c_"):
         await _handle_start_campaign(message, state, analytics, deep_link)
     else:
-        await _handle_start_generic(message, state, analytics, deep_link, parsed_source, metrika_client_id)
+        await _handle_start_generic(
+            message,
+            state,
+            analytics,
+            deep_link,
+            parsed_source,
+            metrika_client_id,
+            direct_bot_token,
+        )
 
 
 async def _handle_start_upload_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
@@ -398,27 +439,51 @@ async def _handle_start_generic(
     deep_link: str | None,
     parsed_source: str | None = None,
     metrika_client_id: str | None = None,
+    direct_bot_token: str | None = None,
 ):
     """Default /start — welcome screen. External deep link is used as source for tracking."""
     # Internal deep links are navigation actions, not traffic sources
     _internal_links = {"photosessions", "photosession", "upload_photo", "buy", "discount"}
     source = parsed_source if parsed_source is not None else deep_link
     source = None if source in _internal_links else source
+    metrika_yclid = None
+    should_track_direct_bot_start = False
+
+    if direct_bot_token:
+        source = "direct"
+        try:
+            claim = await backend.claim_direct_bot_start(direct_bot_token, message.from_user.id)
+            source = claim.get("source") or source
+            metrika_yclid = claim.get("yclid")
+            should_track_direct_bot_start = bool(claim.get("should_track") and metrika_yclid)
+        except Exception as exc:
+            logger.error(
+                "Failed to claim direct bot start token for tg=%s: %s",
+                message.from_user.id,
+                exc,
+                exc_info=True,
+            )
 
     result = await _register_user(message, source=source)
 
     t0 = time.monotonic()
     await analytics.track("bot_start", user_id=str(message.from_user.id), properties={
-        "deep_link": _analytics_deep_link(deep_link, source, metrika_client_id),
+        "deep_link": _analytics_deep_link(deep_link, source, metrika_client_id, direct_bot_token),
         "source": source,
         "has_metrika_client_id": bool(metrika_client_id),
+        "has_metrika_yclid": bool(metrika_yclid),
     })
     logger.info(f"[tg={message.from_user.id}] analytics.track took {time.monotonic() - t0:.2f}s")
 
     if metrika_client_id:
         asyncio.create_task(
-            _report_bot_started_to_metrika(message.from_user.id, source, metrika_client_id),
+            _report_bot_started_to_metrika_by_client_id(message.from_user.id, source, metrika_client_id),
             name=f"metrika-bot-started-{message.from_user.id}",
+        )
+    elif should_track_direct_bot_start and metrika_yclid:
+        asyncio.create_task(
+            _report_bot_started_to_metrika_by_yclid(message.from_user.id, source, metrika_yclid),
+            name=f"metrika-bot-started-direct-{message.from_user.id}",
         )
 
     # Clear any stale FSM state (e.g. onboarding_paywall) so buttons work
