@@ -18,6 +18,12 @@ ANALYTICS_URL: str = os.getenv("ANALYTICS_URL", "http://94.198.219.69:8100")
 ANALYTICS_API_KEY: str = os.getenv("ANALYTICS_API_KEY", "579f0cf8-b7c8-4665-b1c3-c8bcf3b14e25")
 ANALYTICS_ENABLED: bool = os.getenv("ANALYTICS_ENABLED", "true").lower() == "true"
 
+# Yandex Metrika offline conversions
+YANDEX_METRIKA_ENABLED: bool = os.getenv("YANDEX_METRIKA_ENABLED", "true").lower() == "true"
+YANDEX_METRIKA_OAUTH_TOKEN: str = os.getenv("YANDEX_METRIKA_OAUTH_TOKEN", "")
+YANDEX_METRIKA_COUNTER_ID: str = os.getenv("YANDEX_METRIKA_COUNTER_ID", "108158643")
+YANDEX_METRIKA_GOAL: str = os.getenv("YANDEX_METRIKA_GOAL", "bot_started")
+
 
 def validate():
     """Проверяет что все обязательные настройки заполнены."""
