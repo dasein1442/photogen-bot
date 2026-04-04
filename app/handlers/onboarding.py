@@ -25,7 +25,8 @@ ONBOARDING_PUSH_SLUGS = {
 }
 PAYMENT_PUSH_OFFERS = {
     "onboarding_paywall_reminder_1": {"generations": 20, "rubles": 289, "source": "onboarding_paywall_reminder_1"},
-    "onboarding_paywall_reminder_2": {"generations": 20, "rubles": 189, "source": "onboarding_paywall_reminder_2"},
+    "onboarding_paywall_reminder_2": {"generations": 10, "rubles": 189, "source": "onboarding_paywall_reminder_2"},
+    "onboarding_paywall_reminder_3": {"generations": 10, "rubles": 99, "source": "onboarding_paywall_reminder_3"},
     "first_payment_discount": {"generations": 20, "rubles": 289, "source": "first_payment_discount"},
 }
 
