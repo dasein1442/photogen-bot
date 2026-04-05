@@ -25,27 +25,17 @@ class YandexMetrikaClient:
         return {"Authorization": f"OAuth {self.token}"}
 
     @staticmethod
-    def build_offline_conversion_csv(identifier_name: str, identifier_value: str, target: str, timestamp: int) -> bytes:
-        csv_text = f"{identifier_name},Target,DateTime\n{identifier_value},{target},{timestamp}\n"
+    def build_offline_conversion_csv(client_id: str, target: str, timestamp: int) -> bytes:
+        csv_text = f"ClientId,Target,DateTime\n{client_id},{target},{timestamp}\n"
         return csv_text.encode("utf-8")
 
-    async def _send_bot_started(
-        self,
-        identifier_name: str,
-        identifier_value: str,
-        source: str | None = None,
-        telegram_id: int | None = None,
-    ) -> bool:
+    async def send_bot_started(self, client_id: str, source: str | None = None, telegram_id: int | None = None) -> bool:
         if not self.enabled:
             logger.info("Yandex Metrika bot_started skipped: client disabled")
             return False
 
-        if not identifier_value or any(ch in identifier_value for ch in {",", "\n", "\r"}):
-            logger.warning(
-                "Yandex Metrika bot_started skipped: invalid %s=%r",
-                identifier_name,
-                identifier_value,
-            )
+        if not client_id.isdigit():
+            logger.warning("Yandex Metrika bot_started skipped: invalid ClientId=%r", client_id)
             return False
 
         timestamp = int(time.time())
@@ -58,7 +48,7 @@ class YandexMetrikaClient:
         form = aiohttp.FormData()
         form.add_field(
             "file",
-            self.build_offline_conversion_csv(identifier_name, identifier_value, self.goal, timestamp),
+            self.build_offline_conversion_csv(client_id, self.goal, timestamp),
             filename="offline_conversions.csv",
             content_type="text/csv",
         )
@@ -77,44 +67,13 @@ class YandexMetrikaClient:
                     return False
 
                 logger.info(
-                    "Yandex Metrika bot_started uploaded: %s=%s source=%s tg=%s response=%s",
-                    identifier_name,
-                    identifier_value,
+                    "Yandex Metrika bot_started uploaded: client_id=%s source=%s tg=%s response=%s",
+                    client_id,
                     source,
                     telegram_id,
                     body[:500],
                 )
                 return True
-
-    async def send_bot_started_by_client_id(
-        self,
-        client_id: str,
-        source: str | None = None,
-        telegram_id: int | None = None,
-    ) -> bool:
-        if not client_id.isdigit():
-            logger.warning("Yandex Metrika bot_started skipped: invalid ClientId=%r", client_id)
-            return False
-
-        return await self._send_bot_started(
-            identifier_name="ClientId",
-            identifier_value=client_id,
-            source=source,
-            telegram_id=telegram_id,
-        )
-
-    async def send_bot_started_by_yclid(
-        self,
-        yclid: str,
-        source: str | None = None,
-        telegram_id: int | None = None,
-    ) -> bool:
-        return await self._send_bot_started(
-            identifier_name="Yclid",
-            identifier_value=yclid,
-            source=source,
-            telegram_id=telegram_id,
-        )
 
 
 metrika = YandexMetrikaClient()
