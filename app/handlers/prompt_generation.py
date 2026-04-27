@@ -1,6 +1,6 @@
 """Handler for 'Генерация по промту' feature.
 
-Flow: user sends photo(s) → writes prompt → Gemini rewrites prompt → Seedream generates photo.
+Flow: user sends photo(s) → writes prompt → Gemini conditionally rewrites prompt → GPT Image 2 generates photo.
 """
 import logging
 import time
