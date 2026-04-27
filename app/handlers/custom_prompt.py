@@ -152,6 +152,18 @@ async def handle_custom_prompt_text(message: Message, state: FSMContext, analyti
         await state.clear()
         await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «✨ Изменить фото».", reply_markup=get_main_menu_keyboard())
         return
+    if len(photo_ids) > 2:
+        await state.clear()
+        logger.warning(
+            "[tg=%s] custom_prompt: invalid local photo count before submit: %s",
+            message.from_user.id,
+            len(photo_ids),
+        )
+        await message.answer(
+            "⚠️ Можно использовать только 1 или 2 фото. Начни заново: нажми «✨ Изменить фото».",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        return
 
     await state.clear()
     await analytics.track("custom_prompt_submitted", user_id=str(message.from_user.id), properties={"prompt_length": len(prompt), "photo_count": len(photo_ids)})
@@ -190,6 +202,13 @@ async def _do_custom_prompt_generation(
 
     if gen_result.get("error") == "already_generating":
         await message.answer("⏳ Подожди — предыдущая генерация ещё в процессе.")
+        return
+
+    if gen_result.get("error") == "invalid_photo_count":
+        await message.answer(
+            "⚠️ Нужно отправить 1 или 2 фото. Нажми «✨ Изменить фото» и попробуй снова.",
+            reply_markup=get_main_menu_keyboard(),
+        )
         return
 
     task_id = gen_result.get("task_id")
