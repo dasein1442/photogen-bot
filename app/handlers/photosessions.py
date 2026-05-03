@@ -37,6 +37,14 @@ def _photosession_list_keyboard(photosessions: list[dict], ps_type: str) -> Inli
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def _generation_word(count: int) -> str:
+    if count % 10 == 1 and count % 100 != 11:
+        return "генерацию"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "генерации"
+    return "генераций"
+
+
 @router.message(F.text == "📸 Создать фотосессию")
 async def handle_photosessions(message: Message, analytics: AnalyticsClient):
     await analytics.track("photosessions_viewed", user_id=str(message.from_user.id))
@@ -44,7 +52,7 @@ async def handle_photosessions(message: Message, analytics: AnalyticsClient):
     await message.answer(
         "📸 Готовые фотосессии — наш главный инструмент.\n"
         "Выбери тип, внутри — готовые сценарии.\n"
-        "Каждая фотосессия = 5 фото за 5 генераций.\n\n"
+        "Каждая фотосессия списывает столько генераций, сколько фото входит в набор.\n\n"
         "Для мужской или парной нужно загрузить фото партнёра в профиле.\n\n"
         "Выбери тип:",
         reply_markup=_type_selection_keyboard(),
@@ -153,10 +161,13 @@ async def handle_photosession_view(callback: CallbackQuery, state: FSMContext, a
     name = ps.get("name", f"Фотосессия {photosession_id}")
     description = ps.get("description", "")
     example_url = ps.get("example")
+    preset_count = ps.get("preset_count")
 
     detail_text = f"<b>{name}</b>"
     if description:
         detail_text += f"\n\n{description}"
+    if preset_count:
+        detail_text += f"\n\nВ наборе: {preset_count} фото за {preset_count} {_generation_word(preset_count)}."
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Начать генерацию", callback_data=f"ps_gen_{photosession_id}")],
