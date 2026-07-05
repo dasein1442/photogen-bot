@@ -17,6 +17,9 @@ PS_TYPES = {
     "couple": "👫 Парная",
 }
 
+PHOTOSESSIONS_PAGE_SIZE = 18
+PHOTOSESSIONS_COLUMNS = 2
+
 
 def _type_selection_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура выбора типа фотосессии."""
@@ -27,14 +30,43 @@ def _type_selection_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def _photosession_list_keyboard(photosessions: list[dict], ps_type: str) -> InlineKeyboardMarkup:
-    """Клавиатура списка фотосессий с кнопкой назад."""
+def _photosession_list_keyboard(photosessions: list[dict], ps_type: str, page: int = 0) -> InlineKeyboardMarkup:
+    """Клавиатура списка фотосессий с пагинацией."""
     buttons = []
-    for ps in photosessions:
-        name = ps.get("name") or f"Фотосессия {ps['id']}"
-        buttons.append([InlineKeyboardButton(text=name, callback_data=f"ps_view_{ps['id']}")])
-    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="ps_back_to_types")])
+    total_pages = max(1, (len(photosessions) + PHOTOSESSIONS_PAGE_SIZE - 1) // PHOTOSESSIONS_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    page_items = photosessions[page * PHOTOSESSIONS_PAGE_SIZE:(page + 1) * PHOTOSESSIONS_PAGE_SIZE]
+
+    for index in range(0, len(page_items), PHOTOSESSIONS_COLUMNS):
+        row = []
+        for ps in page_items[index:index + PHOTOSESSIONS_COLUMNS]:
+            name = ps.get("name") or f"Фотосессия {ps['id']}"
+            row.append(InlineKeyboardButton(text=name, callback_data=f"ps_view_{ps['id']}"))
+        buttons.append(row)
+
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"ps_page_{ps_type}_{page - 1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"ps_page_{ps_type}_0"))
+
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="➡️", callback_data=f"ps_page_{ps_type}_{page + 1}"))
+    buttons.append(nav_buttons)
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _photosession_page_from_callback(callback_data: str) -> tuple[str, int] | None:
+    """Parse ps_page_<type>_<page> callback data."""
+    parts = callback_data.rsplit("_", 1)
+    if len(parts) != 2:
+        return None
+    prefix, page_text = parts
+    if not prefix.startswith("ps_page_") or not page_text.isdigit():
+        return None
+    ps_type = prefix.replace("ps_page_", "", 1)
+    return ps_type, int(page_text)
 
 
 def _generation_word(count: int) -> str:
@@ -71,7 +103,7 @@ async def handle_type_selection(callback: CallbackQuery, state: FSMContext, anal
     )
 
     # Сохраняем тип в FSM state data для дальнейшего использования
-    await state.update_data(ps_type=ps_type)
+    await state.update_data(ps_type=ps_type, ps_page=0)
 
     try:
         photosessions = await backend.get_photosessions(type=ps_type)
@@ -108,6 +140,37 @@ async def handle_type_selection(callback: CallbackQuery, state: FSMContext, anal
         await callback.message.answer(
             f"{type_label} — выбери фотосессию 📸👇",
             reply_markup=_photosession_list_keyboard(photosessions, ps_type),
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda cb: cb.data and cb.data.startswith("ps_page_"))
+async def handle_photosession_page(callback: CallbackQuery, state: FSMContext):
+    parsed = _photosession_page_from_callback(callback.data)
+    if parsed is None:
+        await callback.answer("⚠️ Ошибка навигации.")
+        return
+
+    ps_type, page = parsed
+    await state.update_data(ps_type=ps_type, ps_page=page)
+
+    try:
+        photosessions = await backend.get_photosessions(type=ps_type)
+    except Exception as e:
+        logger.error(f"Ошибка загрузки фотосессий (type={ps_type}, page={page}): {e}")
+        await callback.answer("⚠️ Не удалось загрузить фотосессии. Попробуй позже.")
+        return
+
+    type_label = PS_TYPES.get(ps_type, ps_type)
+    try:
+        await callback.message.edit_text(
+            f"{type_label} — выбери фотосессию 📸👇",
+            reply_markup=_photosession_list_keyboard(photosessions, ps_type, page=page),
+        )
+    except Exception:
+        await callback.message.answer(
+            f"{type_label} — выбери фотосессию 📸👇",
+            reply_markup=_photosession_list_keyboard(photosessions, ps_type, page=page),
         )
     await callback.answer()
 
@@ -197,6 +260,7 @@ async def handle_back(callback: CallbackQuery, state: FSMContext):
     """Назад к списку фотосессий выбранного типа."""
     data = await state.get_data()
     ps_type = data.get("ps_type")
+    ps_page = data.get("ps_page", 0)
 
     try:
         photosessions = await backend.get_photosessions(type=ps_type)
@@ -223,6 +287,6 @@ async def handle_back(callback: CallbackQuery, state: FSMContext):
     else:
         await callback.message.answer(
             f"{type_label} — выбери фотосессию 📸👇",
-            reply_markup=_photosession_list_keyboard(photosessions, ps_type),
+            reply_markup=_photosession_list_keyboard(photosessions, ps_type, page=ps_page),
         )
     await callback.answer()
