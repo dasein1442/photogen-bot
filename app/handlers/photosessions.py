@@ -1,6 +1,7 @@
 import logging
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, URLInputFile
 from aiogram.fsm.context import FSMContext
 
@@ -48,10 +49,12 @@ def _photosession_list_keyboard(photosessions: list[dict], ps_type: str, page: i
     if page > 0:
         nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"ps_page_{ps_type}_{page - 1}"))
     else:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"ps_page_{ps_type}_0"))
+        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data="ps_back_to_types"))
 
     if page < total_pages - 1:
         nav_buttons.append(InlineKeyboardButton(text="➡️", callback_data=f"ps_page_{ps_type}_{page + 1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="➡️", callback_data=f"ps_page_{ps_type}_{page}"))
     buttons.append(nav_buttons)
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -167,11 +170,15 @@ async def handle_photosession_page(callback: CallbackQuery, state: FSMContext):
             f"{type_label} — выбери фотосессию 📸👇",
             reply_markup=_photosession_list_keyboard(photosessions, ps_type, page=page),
         )
-    except Exception:
-        await callback.message.answer(
-            f"{type_label} — выбери фотосессию 📸👇",
-            reply_markup=_photosession_list_keyboard(photosessions, ps_type, page=page),
-        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            logger.error(f"Ошибка обновления страницы фотосессий (type={ps_type}, page={page}): {e}")
+            await callback.answer("⚠️ Не удалось обновить список.")
+            return
+    except Exception as e:
+        logger.error(f"Ошибка обновления страницы фотосессий (type={ps_type}, page={page}): {e}")
+        await callback.answer("⚠️ Не удалось обновить список.")
+        return
     await callback.answer()
 
 
