@@ -175,6 +175,8 @@ async def handle_photosession_page(callback: CallbackQuery, state: FSMContext):
             logger.error(f"Ошибка обновления страницы фотосессий (type={ps_type}, page={page}): {e}")
             await callback.answer("⚠️ Не удалось обновить список.")
             return
+        await callback.answer("Это последняя страница")
+        return
     except Exception as e:
         logger.error(f"Ошибка обновления страницы фотосессий (type={ps_type}, page={page}): {e}")
         await callback.answer("⚠️ Не удалось обновить список.")
