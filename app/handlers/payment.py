@@ -44,8 +44,8 @@ async def _create_and_send_payment(message, telegram_id: int, generations: int, 
         f"(примерно {generations} фотографий)».\n\n"
         f"Мы не имеем доступа к вашим личным и платежным данным. "
         f"Переходя к оплате, вы подтверждаете ознакомление и согласие с нашим "
-        f'<a href="https://kadritsa.ru/pages/terms.html">пользовательским соглашением</a> и '
-        f'<a href="https://kadritsa.ru/pages/privacy.html">политикой конфиденциальности</a>.\n\n'
+        f'<a href="http://38.180.30.173/pages/terms.html">пользовательским соглашением</a> и '
+        f'<a href="http://38.180.30.173/pages/privacy.html">политикой конфиденциальности</a>.\n\n'
         f"Генерации — валюта нашего сервиса.\n\n"
         f"В случае возникновения проблем обращайтесь в "
         f'<a href="https://t.me/IIUSNO">чат поддержки</a>.',
