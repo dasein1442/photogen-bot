@@ -35,9 +35,10 @@ class PaywallGuardMiddleware(BaseMiddleware):
         if isinstance(state_data, dict) and state_data.get("_payment_access_granted"):
             return await handler(event, data)
 
-        # FSM storage is ephemeral. Restore the paywall from the backend when an
-        # unpaid user returns later and sends any message.
-        if not is_paywall and current_state is None and isinstance(event, Message):
+        # FSM storage can be stale after onboarding. Backend purchase state is
+        # authoritative: an unpaid user who finished onboarding must stay in
+        # the payment flow regardless of the current FSM state.
+        if not is_paywall and isinstance(event, Message):
             try:
                 from app.api.backend import backend
 

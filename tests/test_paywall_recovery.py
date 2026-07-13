@@ -67,6 +67,30 @@ async def test_paywall_message_has_cooldown():
 
 
 @pytest.mark.asyncio
+async def test_stale_non_paywall_state_restores_payment_flow():
+    middleware = PaywallGuardMiddleware()
+    handler = AsyncMock()
+    state = AsyncMock()
+    state.get_state.return_value = PhotoUploadStates.waiting_for_main_photo.state
+    state.get_data.return_value = {}
+    analytics = AsyncMock()
+    message = _message()
+    user_data = {
+        "user": {"onboarding_completed": True, "has_purchased": False},
+    }
+
+    with (
+        patch("app.api.backend.backend.get_user", AsyncMock(return_value=user_data)),
+        patch("app.handlers.payment.start_onboarding_payment", new_callable=AsyncMock) as start_payment,
+    ):
+        await middleware(handler, message, {"state": state, "analytics": analytics})
+
+    state.set_state.assert_awaited_with(PhotoUploadStates.onboarding_paywall)
+    start_payment.assert_awaited_once_with(message, 42, state, analytics=analytics)
+    handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_purchased_user_is_not_intercepted():
     middleware = PaywallGuardMiddleware()
     handler = AsyncMock(return_value="handled")
