@@ -29,31 +29,13 @@ async def _create_and_send_payment(message, telegram_id: int, generations: int, 
     confirmation_url = result.get("confirmation_url")
     yookassa_id = result.get("yookassa_id")
 
-    if result.get("already_succeeded"):
-        try:
-            user_data = await backend.get_user(telegram_id)
-            remaining = user_data.get("generations_remaining", "?")
-        except Exception:
-            remaining = "?"
-        await message.answer(
-            f"✅ Оплата уже подтверждена!\n\n"
-            f"Тебе доступно {remaining} генераций — выбирай стиль 👇",
-            reply_markup=get_main_menu_keyboard(),
-        )
-        return
-
     if not confirmation_url:
         await message.answer("⚠️ Не удалось получить ссылку на оплату.")
         return
 
-    reused_text = (
-        "\n\nУ тебя уже есть активная ссылка на оплату — кнопка ниже ведёт туда же."
-        if result.get("reused")
-        else ""
-    )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Оплатить 💳", url=confirmation_url)],
-        [InlineKeyboardButton(text="Написать в поддержку 💬", url="https://t.me/IIUSNO")],
+        [InlineKeyboardButton(text="Проверить оплату ✅", callback_data=f"check_yookassa_{yookassa_id}")],
     ])
 
     await message.answer(
@@ -64,8 +46,7 @@ async def _create_and_send_payment(message, telegram_id: int, generations: int, 
         f"Переходя к оплате, вы подтверждаете ознакомление и согласие с нашим "
         f'<a href="http://38.180.30.173/pages/terms.html">пользовательским соглашением</a> и '
         f'<a href="http://38.180.30.173/pages/privacy.html">политикой конфиденциальности</a>.\n\n'
-        f"После оплаты доступ откроется автоматически. Генерации — валюта нашего сервиса."
-        f"{reused_text}\n\n"
+        f"Генерации — валюта нашего сервиса.\n\n"
         f"В случае возникновения проблем обращайтесь в "
         f'<a href="https://t.me/IIUSNO">чат поддержки</a>.',
         reply_markup=keyboard,
@@ -164,7 +145,8 @@ async def handle_buy_tier(callback: CallbackQuery, analytics: AnalyticsClient):
 
 @router.callback_query(lambda cb: cb.data and cb.data.startswith("check_yookassa_"))
 async def handle_check_yookassa(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Legacy check button from old payment messages."""
+    """User clicked 'Check payment' — verify YooKassa payment status."""
+    await callback.answer()
     yookassa_id = callback.data.replace("check_yookassa_", "")
     telegram_id = callback.from_user.id
 
@@ -172,18 +154,17 @@ async def handle_check_yookassa(callback: CallbackQuery, state: FSMContext, anal
         result = await backend.check_yookassa_payment(telegram_id, yookassa_id)
     except Exception as e:
         logger.error(f"Ошибка проверки платежа ЮКасса: {e}")
-        await callback.answer("Не удалось проверить статус. Попробуй позже.", show_alert=True)
+        await callback.message.answer("⚠️ Не удалось проверить статус. Попробуй ещё раз.")
         return
 
     if not result.get("found"):
-        await callback.answer("Платёж не найден.", show_alert=True)
+        await callback.message.answer("⚠️ Платёж не найден.")
         return
 
     status = result.get("status")
     generations = result.get("generations", 0)
 
     if status == "succeeded":
-        await callback.answer()
         current_state = await state.get_state()
         if current_state == PhotoUploadStates.onboarding_paywall.state:
             await state.clear()
@@ -206,67 +187,13 @@ async def handle_check_yookassa(callback: CallbackQuery, state: FSMContext, anal
             })
 
     elif status == "canceled":
-        await callback.answer()
-        rubles = result.get("amount_rubles", 0)
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="Попробовать оплатить снова 🔄",
-                callback_data=f"retry_payment_{generations}_{rubles}",
-            )],
-            [InlineKeyboardButton(text="Написать в поддержку 💬", url="https://t.me/IIUSNO")],
-        ])
-        await callback.message.answer(
-            "❌ Платёж не прошёл. Создай новую попытку — вводить /menu не нужно.",
-            reply_markup=keyboard,
-        )
+        await callback.message.answer("❌ Платёж отменён. Попробуй ещё раз.")
 
     else:
-        await callback.answer(
-            "Оплата пока не подтверждена. После оплаты доступ откроется автоматически.",
-            show_alert=True,
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Проверить ещё раз ✅", callback_data=f"check_yookassa_{yookassa_id}")],
+        ])
+        await callback.message.answer(
+            "⏳ Оплата ещё не подтверждена. Если ты уже оплатил — подожди минуту и нажми кнопку ещё раз.",
+            reply_markup=keyboard,
         )
-
-
-@router.callback_query(lambda cb: cb.data and cb.data.startswith("retry_payment_"))
-async def handle_retry_payment(callback: CallbackQuery, analytics: AnalyticsClient):
-    """Create or reuse a payment after a canceled attempt."""
-    await callback.answer()
-    try:
-        _, _, generations, rubles = callback.data.split("_")
-        generations = int(generations)
-        rubles = int(rubles)
-    except (ValueError, TypeError):
-        await callback.message.answer("⚠️ Не удалось повторить платёж. Попробуй ещё раз.")
-        return
-
-    await _create_and_send_payment(
-        callback.message,
-        callback.from_user.id,
-        generations=generations,
-        rubles=rubles,
-        analytics=analytics,
-        source="retry",
-    )
-
-
-@router.callback_query(lambda cb: cb.data == "payment_open_menu")
-async def handle_payment_open_menu(callback: CallbackQuery, state: FSMContext):
-    """Open the product after an automatic payment-success notification."""
-    await callback.answer()
-    try:
-        user_data = await backend.get_user(callback.from_user.id)
-        user_info = user_data.get("user", {})
-        if not user_info.get("has_purchased"):
-            await start_onboarding_payment(callback.message, callback.from_user.id, state)
-            return
-        remaining = user_data.get("generations_remaining", "?")
-    except Exception as e:
-        logger.error(f"Ошибка открытия меню после оплаты: {e}")
-        await callback.message.answer("⚠️ Не удалось открыть меню. Попробуй ещё раз.")
-        return
-
-    await state.clear()
-    await callback.message.answer(
-        f"Доступно генераций: {remaining} 👇",
-        reply_markup=get_main_menu_keyboard(),
-    )
