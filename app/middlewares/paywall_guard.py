@@ -1,5 +1,6 @@
 """Middleware that blocks all actions while user is in onboarding_paywall state."""
 import logging
+import time
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
@@ -9,10 +10,11 @@ from aiogram.fsm.context import FSMContext
 from app.states.photo import PhotoUploadStates
 
 logger = logging.getLogger(__name__)
+PAYWALL_PROMPT_COOLDOWN_SECONDS = 300
 
 
 class PaywallGuardMiddleware(BaseMiddleware):
-    """Block all user actions except payment while in onboarding_paywall state."""
+    """Keep unpaid onboarding users inside a recoverable payment flow."""
 
     async def __call__(
         self,
@@ -25,7 +27,34 @@ class PaywallGuardMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         current_state = await state.get_state()
-        if current_state != PhotoUploadStates.onboarding_paywall.state:
+        is_paywall = current_state == PhotoUploadStates.onboarding_paywall.state
+        restored_user_info = None
+
+        state_data = await state.get_data()
+        if isinstance(state_data, dict) and state_data.get("_payment_access_granted"):
+            return await handler(event, data)
+
+        # FSM storage is ephemeral. Restore the paywall from the backend when an
+        # unpaid user returns later and sends any message.
+        if not is_paywall and current_state is None and isinstance(event, Message):
+            try:
+                from app.api.backend import backend
+
+                user_data = await backend.get_user(telegram_id=event.from_user.id)
+                user_info = user_data.get("user", {})
+                restored_user_info = user_info
+                if user_info.get("has_purchased"):
+                    await state.update_data(_payment_access_granted=True)
+                is_paywall = bool(
+                    user_info.get("onboarding_completed")
+                    and not user_info.get("has_purchased")
+                )
+                if is_paywall:
+                    await state.set_state(PhotoUploadStates.onboarding_paywall)
+            except Exception as e:
+                logger.warning(f"PaywallGuard: не удалось восстановить paywall: {e}")
+
+        if not is_paywall:
             return await handler(event, data)
 
         # State is onboarding_paywall — but check if user already purchased (e.g. manually granted)
@@ -33,9 +62,13 @@ class PaywallGuardMiddleware(BaseMiddleware):
             from app.api.backend import backend
             telegram_id = event.from_user.id if event.from_user else None
             if telegram_id:
-                user_data = await backend.get_user(telegram_id=telegram_id)
-                if user_data.get("user", {}).get("has_purchased"):
+                user_info = restored_user_info
+                if user_info is None:
+                    user_data = await backend.get_user(telegram_id=telegram_id)
+                    user_info = user_data.get("user", {})
+                if user_info.get("has_purchased"):
                     await state.clear()
+                    await state.update_data(_payment_access_granted=True)
                     return await handler(event, data)
         except Exception as e:
             logger.warning(f"PaywallGuard: не удалось проверить has_purchased: {e}")
@@ -54,17 +87,34 @@ class PaywallGuardMiddleware(BaseMiddleware):
                 event.data == "buy_generations"
                 or event.data.startswith("buy_tier_")
                 or event.data.startswith("check_yookassa_")
+                or event.data.startswith("retry_payment_")
                 or event.data == "onboarding_pay"
+                or event.data == "payment_open_menu"
             ):
                 return await handler(event, data)
 
-        # Block everything else — show buy button
+        # Any message from an unpaid onboarding user brings back the payment
+        # flow. Cooldown prevents chat spam when the user sends several
+        # messages in a row; backend reuse prevents duplicate YooKassa payments.
         if isinstance(event, Message):
-            target = event
-        else:
-            target = event.message
-            await event.answer()
+            now = int(time.time())
+            last_prompt_at = int(state_data.get("_last_paywall_prompt_at") or 0)
+            if now - last_prompt_at < PAYWALL_PROMPT_COOLDOWN_SECONDS:
+                return
+            await state.update_data(_last_paywall_prompt_at=now)
 
+            from app.handlers.payment import start_onboarding_payment
+
+            await start_onboarding_payment(
+                event,
+                event.from_user.id,
+                state,
+                analytics=data.get("analytics"),
+            )
+            return
+
+        target = event.message
+        await event.answer()
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Перейти к оплате 💳", callback_data="onboarding_pay")],
         ])
