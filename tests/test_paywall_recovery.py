@@ -53,11 +53,16 @@ async def test_paywall_message_has_cooldown():
     state.get_state.return_value = PhotoUploadStates.onboarding_paywall.state
     state.get_data.return_value = {"_last_paywall_prompt_at": int(time.time())}
     message = _message()
+    object.__setattr__(message, "answer", AsyncMock())
 
     with patch("app.handlers.payment.start_onboarding_payment", new_callable=AsyncMock) as start_payment:
         await middleware(handler, message, {"state": state})
 
     start_payment.assert_not_awaited()
+    message.answer.assert_awaited_once_with(
+        "Ссылка на оплату выше 👆\n"
+        "После оплаты доступ откроется автоматически."
+    )
     handler.assert_not_awaited()
 
 
