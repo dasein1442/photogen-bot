@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
 from app.services.analytics_sdk import AnalyticsClient
+from app.services.generation_errors import CONTENT_MODERATION_MESSAGE, has_content_moderation_error
 from app.services.tg_sender import download_photo, send_photos
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
@@ -231,7 +232,12 @@ async def _do_custom_prompt_generation(
         successful = [r for r in results if r.get("status") == "completed" and r.get("result_url")]
 
         if not successful:
-            await message.answer("❌ Генерация не удалась. Попробуй ещё раз.")
+            failure_message = (
+                CONTENT_MODERATION_MESSAGE
+                if has_content_moderation_error(task_result)
+                else "❌ Генерация не удалась. Попробуй ещё раз."
+            )
+            await message.answer(failure_message, reply_markup=get_main_menu_keyboard())
             return
 
         url = successful[0]["result_url"]
@@ -267,8 +273,11 @@ async def _do_custom_prompt_generation(
             reply_markup=get_main_menu_keyboard(),
         )
     elif status == "failed":
-        error_msg = task_result.get("error_message", "Неизвестная ошибка")
-        await message.answer(f"❌ Генерация не удалась: {error_msg}")
+        if has_content_moderation_error(task_result):
+            await message.answer(CONTENT_MODERATION_MESSAGE, reply_markup=get_main_menu_keyboard())
+        else:
+            error_msg = task_result.get("error_message", "Неизвестная ошибка")
+            await message.answer(f"❌ Генерация не удалась: {error_msg}")
     else:
         await message.answer("⏰ Генерация заняла слишком много времени. Попробуй позже.")
         if task_id:
