@@ -11,7 +11,6 @@ from app.states.photo import PhotoUploadStates
 
 logger = logging.getLogger(__name__)
 PAYWALL_PROMPT_COOLDOWN_SECONDS = 300
-PAYWALL_HINT_COOLDOWN_SECONDS = 30
 
 
 class PaywallGuardMiddleware(BaseMiddleware):
@@ -101,13 +100,6 @@ class PaywallGuardMiddleware(BaseMiddleware):
             now = int(time.time())
             last_prompt_at = int(state_data.get("_last_paywall_prompt_at") or 0)
             if now - last_prompt_at < PAYWALL_PROMPT_COOLDOWN_SECONDS:
-                last_hint_at = int(state_data.get("_last_paywall_hint_at") or 0)
-                if now - last_hint_at >= PAYWALL_HINT_COOLDOWN_SECONDS:
-                    await state.update_data(_last_paywall_hint_at=now)
-                    await event.answer(
-                        "Ссылка на оплату выше 👆\n"
-                        "После оплаты доступ откроется автоматически."
-                    )
                 return
             await state.update_data(_last_paywall_prompt_at=now)
 
