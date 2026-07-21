@@ -47,6 +47,46 @@ async def download_photo(url: str) -> bytes:
             return data
 
 
+async def send_video(message: Message, video_data: bytes, telegram_id: int) -> SendResult:
+    """Send one MP4 with the same per-user serialization as photo delivery."""
+    max_retries = 3
+    user_lock = _get_user_lock(telegram_id)
+
+    async with user_lock:
+        for attempt in range(max_retries):
+            try:
+                async with _global_send_semaphore:
+                    await message.answer_video(
+                        video=BufferedInputFile(video_data, filename="animated-photo.mp4"),
+                        supports_streaming=True,
+                    )
+                return SendResult(total=1, sent=1, failed=0, user_blocked=False)
+            except TelegramForbiddenError as e:
+                logger.error("[tg=%s] Bot blocked by user while sending video: %s", telegram_id, e, exc_info=True)
+                return SendResult(total=1, sent=0, failed=1, user_blocked=True)
+            except TelegramRetryAfter as e:
+                logger.warning(
+                    "[tg=%s] Video send attempt %s rate limited, retry_after=%ss",
+                    telegram_id,
+                    attempt + 1,
+                    e.retry_after,
+                )
+                await asyncio.sleep(e.retry_after)
+            except (TelegramNetworkError, TelegramBadRequest) as e:
+                logger.warning(
+                    "[tg=%s] Video send attempt %s failed: %s",
+                    telegram_id,
+                    attempt + 1,
+                    e,
+                    exc_info=True,
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5 * (attempt + 1))
+
+    await message.answer("⚠️ Не удалось отправить видео.")
+    return SendResult(total=1, sent=0, failed=1, user_blocked=False)
+
+
 async def send_photos(message: Message, photos_data: list[bytes], telegram_id: int) -> SendResult:
     """Send photos to Telegram with retry + single-photo fallback.
 

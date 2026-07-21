@@ -13,3 +13,6 @@ class PhotoUploadStates(StatesGroup):
     waiting_for_prompt_gen_text = State()
     # Апскейл
     waiting_for_upscale_photo = State()
+    # Оживление фото
+    waiting_for_animation_photo = State()
+    waiting_for_animation_prompt = State()

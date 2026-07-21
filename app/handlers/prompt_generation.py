@@ -105,7 +105,7 @@ async def handle_prompt_gen_photo(message: Message, state: FSMContext, analytics
 @router.message(F.text, PhotoUploadStates.waiting_for_prompt_gen_photo)
 async def handle_text_instead_of_prompt_gen_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Пользователь отправил текст вместо фото — напоминаем."""
-    menu_buttons = ("📸 Создать фотосессию", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
+    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
     if message.text.startswith("/") or message.text in menu_buttons:
         await state.clear()
         return
@@ -129,7 +129,7 @@ async def handle_prompt_gen_text(message: Message, state: FSMContext, analytics:
     """User sent prompt text for generation."""
     prompt = message.text.strip()
 
-    menu_buttons = ("📸 Создать фотосессию", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
+    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
     if prompt.startswith("/") or prompt in menu_buttons:
         await state.clear()
         return

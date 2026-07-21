@@ -279,6 +279,30 @@ class BackendClient:
                     )
                 return await resp.json()
 
+    async def animate_photo(self, telegram_id: int, photo_id: int, prompt: str) -> dict:
+        """POST /photos/animate — create a five-second video from a photo."""
+        async with aiohttp.ClientSession() as session:
+            payload = {"telegram_id": telegram_id, "photo_id": photo_id, "prompt": prompt}
+            async with session.post(
+                f"{self.base_url}/photos/animate", json=payload, headers=self._headers()
+            ) as resp:
+                if resp.status == 402:
+                    return {"error": "no_balance"}
+                if resp.status == 429:
+                    return {"error": "already_generating"}
+                if resp.status >= 400:
+                    body, detail = await self._read_error_payload(resp)
+                    logger.error("animate_photo failed: status=%s, body=%s", resp.status, body)
+                    if resp.status == 400 and detail == "Photo not found":
+                        return {"error": "photo_not_found"}
+                    if resp.status == 400 and detail == "Prompt must be between 3 and 1000 characters":
+                        return {"error": "invalid_prompt"}
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=resp.status, message=body,
+                    )
+                return await resp.json()
+
     async def get_task_status(self, task_id: int) -> dict:
         """GET /photos/task/{task_id} — статус задачи генерации."""
         async with aiohttp.ClientSession() as session:
