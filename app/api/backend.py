@@ -220,7 +220,7 @@ class BackendClient:
                 return await resp.json()
 
     async def generate_prompt(self, telegram_id: int, prompt: str, photo_ids: list[int]) -> dict:
-        """POST /photos/generate-prompt — генерация по промту (Gemini + Seedream)."""
+        """POST /photos/generate-prompt — unified image creation and editing."""
         async with aiohttp.ClientSession() as session:
             payload = {"telegram_id": telegram_id, "prompt": prompt, "photo_ids": photo_ids}
             async with session.post(

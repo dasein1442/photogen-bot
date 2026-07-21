@@ -108,7 +108,7 @@ async def handle_photoshop_photo(message: Message, state: FSMContext, analytics:
 @router.message(F.text, PhotoUploadStates.waiting_for_photoshop_photo)
 async def handle_text_instead_of_photoshop_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Пользователь отправил текст вместо фото — напоминаем."""
-    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
+    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Профиль", "Служба заботы", "Назад", "✨ Создать или изменить фото", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
     if message.text.startswith("/") or message.text in menu_buttons:
         await state.clear()
         return
@@ -134,7 +134,7 @@ async def handle_custom_prompt_text(message: Message, state: FSMContext, analyti
     prompt = message.text.strip()
 
     # Проверяем, что это не команда или кнопка меню
-    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
+    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Профиль", "Служба заботы", "Назад", "✨ Создать или изменить фото", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
     if prompt.startswith("/") or prompt in menu_buttons:
         await state.clear()
         return  # пусть другой хэндлер обработает

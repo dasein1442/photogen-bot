@@ -1,7 +1,4 @@
-"""Handler for 'Генерация по промту' feature.
-
-Flow: user sends photo(s) → writes prompt → Gemini conditionally rewrites prompt → GPT Image 2 generates photo.
-"""
+"""Unified flow for creating a new image or editing a source photo."""
 import logging
 import time
 
@@ -21,19 +18,19 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.message(F.text == "💫 Новый образ")
+@router.message(F.text == "✨ Создать или изменить фото")
 async def handle_prompt_gen_button(message: Message, state: FSMContext, analytics: AnalyticsClient):
-    """User clicked 'Образ по своему желанию' — ask for photo."""
+    """Start the unified image creation and editing flow."""
     await analytics.track("prompt_generation_opened", user_id=str(message.from_user.id))
     await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_prompt_gen_photo)
     await state.set_data({"prompt_gen_photo_ids": []})
 
     await message.answer(
-        "💫 <b>Новый образ</b>\n\n"
-        "Опиши любой сценарий — ИИ создаст портретное фото с нуля, сохранив твою внешность. "
-        "2 фото = точнее лицо. А если на фото разные люди — ИИ соберёт их вместе.\n\n"
-        "📎 Отправь одну или две фотографии, а затем опиши сцену.\n\n"
+        "✨ <b>Создать или изменить фото</b>\n\n"
+        "Измени фон, одежду или детали на фото, либо создай новый образ и сцену с людьми из референса. "
+        "Можно отправить два фото, чтобы объединить людей или взять детали из каждого.\n\n"
+        "📎 Отправь одну или две фотографии, а затем опиши результат.\n\n"
         "<i>Стоимость: 2 генерации.</i>",
         parse_mode="HTML",
     )
@@ -86,30 +83,30 @@ async def handle_prompt_gen_photo(message: Message, state: FSMContext, analytics
         await state.set_state(PhotoUploadStates.waiting_for_prompt_gen_text)
         await message.answer(
             "✅ Фото загружено!\n\n"
-            "Опиши сцену, которую хочешь — или отправь ещё одно фото.\n\n"
-            "Обязательно укажи, кто на фото: пол, возраст, внешность. "
-            "Чем подробнее — тем лучше результат.\n\n"
+            "Опиши, что изменить или какой образ создать — или отправь ещё одно фото.\n\n"
+            "Чем понятнее опишешь результат, свет, одежду и фон, тем точнее получится фото.\n\n"
             "<blockquote expandable><b>Примеры запросов:</b>\n\n"
-            "Девушка средних лет сидит в парижском кафе с круассаном и кофе, утренний свет, вид на Эйфелеву башню\n\n"
-            "Парень 18 лет стоит на крыше небоскрёба в Нью-Йорке ночью, ветер, огни города позади\n\n"
-            "Мама 32 года с дочкой 5 лет на пляже Мальдив, обе в белых платьях, закат и бирюзовая вода</blockquote>",
+            "• Замени фон на парижское кафе с утренним светом\n"
+            "• Переодень в чёрное вечернее платье, мягкий свет студии\n"
+            "• Сделай кадр на крыше небоскрёба в Нью-Йорке ночью, ветер и огни города\n"
+            "• Объедини людей с двух фото на пляже на закате</blockquote>",
             parse_mode="HTML",
         )
     else:
         await state.set_state(PhotoUploadStates.waiting_for_prompt_gen_text)
         await message.answer(
-            "Оба фото загружены! Напиши свой запрос 👇",
+            "Оба фото загружены! Напиши, что создать или изменить 👇",
         )
 
 
 @router.message(F.text, PhotoUploadStates.waiting_for_prompt_gen_photo)
 async def handle_text_instead_of_prompt_gen_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Пользователь отправил текст вместо фото — напоминаем."""
-    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
+    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Профиль", "Служба заботы", "Назад", "✨ Создать или изменить фото", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
     if message.text.startswith("/") or message.text in menu_buttons:
         await state.clear()
         return
-    await message.answer("📎 Сначала отправь фото, а потом напиши описание сцены.")
+    await message.answer("📎 Сначала отправь фото, а потом опиши, что создать или изменить.")
 
 
 @router.message(F.photo, PhotoUploadStates.waiting_for_prompt_gen_text)
@@ -129,7 +126,7 @@ async def handle_prompt_gen_text(message: Message, state: FSMContext, analytics:
     """User sent prompt text for generation."""
     prompt = message.text.strip()
 
-    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Случайное фото", "Профиль", "Служба заботы", "Назад", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
+    menu_buttons = ("📸 Создать фотосессию", "🎬 Оживить фото", "Профиль", "Служба заботы", "Назад", "✨ Создать или изменить фото", "✨ Изменить фото", "💫 Новый образ", "🔍 Улучшить кач-во")
     if prompt.startswith("/") or prompt in menu_buttons:
         await state.clear()
         return
@@ -146,7 +143,7 @@ async def handle_prompt_gen_text(message: Message, state: FSMContext, analytics:
     photo_ids = data.get("prompt_gen_photo_ids", [])
     if not photo_ids:
         await state.clear()
-        await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «💫 Новый образ».", reply_markup=get_main_menu_keyboard())
+        await message.answer("⚠️ Фото не найдено. Начни сначала — нажми «✨ Создать или изменить фото».", reply_markup=get_main_menu_keyboard())
         return
     if len(photo_ids) > 2:
         await state.clear()
@@ -156,7 +153,7 @@ async def handle_prompt_gen_text(message: Message, state: FSMContext, analytics:
             len(photo_ids),
         )
         await message.answer(
-            "⚠️ Можно использовать только 1 или 2 фото. Начни заново: нажми «💫 Новый образ».",
+            "⚠️ Можно использовать только 1 или 2 фото. Начни заново: нажми «✨ Создать или изменить фото».",
             reply_markup=get_main_menu_keyboard(),
         )
         return
@@ -202,7 +199,7 @@ async def _do_prompt_generation(
 
     if gen_result.get("error") == "invalid_photo_count":
         await message.answer(
-            "⚠️ Нужно отправить 1 или 2 фото. Нажми «💫 Новый образ» и попробуй снова.",
+            "⚠️ Нужно отправить 1 или 2 фото. Нажми «✨ Создать или изменить фото» и попробуй снова.",
             reply_markup=get_main_menu_keyboard(),
         )
         return
@@ -263,7 +260,7 @@ async def _do_prompt_generation(
         logger.info(f"[tg={telegram_id}] Prompt generation total={total_time:.2f}s")
 
         await message.answer(
-            "✨ Готово! Хочешь ещё — нажми «💫 Новый образ» снова.",
+            "✨ Готово! Хочешь ещё — нажми «✨ Создать или изменить фото» снова.",
             reply_markup=get_main_menu_keyboard(),
         )
     elif status == "failed":
