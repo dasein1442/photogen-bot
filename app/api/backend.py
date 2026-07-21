@@ -325,13 +325,20 @@ class BackendClient:
                 resp.raise_for_status()
                 return await resp.json()
 
-    async def create_yookassa_payment(self, telegram_id: int, generations: int, amount_rubles: int) -> dict:
+    async def create_yookassa_payment(
+        self,
+        telegram_id: int,
+        generations: int,
+        amount_rubles: int,
+        context: str = "menu",
+    ) -> dict:
         """POST /payments/yookassa/create — создать платёж ЮКасса."""
         async with aiohttp.ClientSession() as session:
             payload = {
                 "telegram_id": telegram_id,
                 "generations": generations,
                 "amount_rubles": amount_rubles,
+                "context": context,
             }
             async with session.post(
                 f"{self.base_url}/payments/yookassa/create", json=payload, headers=self._headers()

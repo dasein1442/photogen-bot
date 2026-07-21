@@ -15,11 +15,16 @@ router = Router()
 
 async def _create_and_send_payment(message, telegram_id: int, generations: int, rubles: int, analytics: AnalyticsClient | None = None, source: str = "menu"):
     """Create YooKassa payment and send payment link to user."""
+    payment_context = "onboarding_paywall" if source == "onboarding" else "menu"
+    if source not in {"menu", "menu_tier", "onboarding"}:
+        payment_context = "special_offer"
+
     try:
         result = await backend.create_yookassa_payment(
             telegram_id=telegram_id,
             generations=generations,
             amount_rubles=rubles,
+            context=payment_context,
         )
     except Exception as e:
         logger.error(f"Ошибка создания платежа ЮКасса: {e}")
@@ -44,8 +49,8 @@ async def _create_and_send_payment(message, telegram_id: int, generations: int, 
         f"(примерно {generations} фотографий)».\n\n"
         f"Мы не имеем доступа к вашим личным и платежным данным. "
         f"Переходя к оплате, вы подтверждаете ознакомление и согласие с нашим "
-        f'<a href="http://38.180.30.173/pages/terms.html">пользовательским соглашением</a> и '
-        f'<a href="http://38.180.30.173/pages/privacy.html">политикой конфиденциальности</a>.\n\n'
+        f'<a href="https://kadritsa.ru/pages/terms.html">пользовательским соглашением</a> и '
+        f'<a href="https://kadritsa.ru/pages/privacy.html">политикой конфиденциальности</a>.\n\n'
         f"Генерации — валюта нашего сервиса.\n\n"
         f"В случае возникновения проблем обращайтесь в "
         f'<a href="https://t.me/IIUSNO">чат поддержки</a>.',
@@ -84,8 +89,15 @@ async def start_payment_flow(message, telegram_id: int, analytics: AnalyticsClie
         rubles = t.get("rubles", 0)
         if not rubles:
             continue
+        original_rubles = t.get("original_rubles", 0)
+        discount_percent = t.get("discount_percent", 0)
+        text = f"{gen} генераций — {rubles} ₽"
+        if original_rubles and original_rubles > rubles:
+            text = f"{text} вместо {original_rubles} ₽"
+        if discount_percent:
+            text = f"{text} (-{discount_percent}%)"
         buttons.append([InlineKeyboardButton(
-            text=f"{gen} генераций — {rubles} ₽",
+            text=text,
             callback_data=f"buy_tier_{gen}_{rubles}",
         )])
 
