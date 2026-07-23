@@ -474,6 +474,16 @@ async def _show_onboarding_paywall(callback: CallbackQuery, analytics: Analytics
     """Show welcome_price promo image with discount text and payment button."""
     await analytics.track("onboarding_next_clicked", user_id=str(callback.from_user.id))
 
+    try:
+        price_data = await backend.get_price(
+            callback.from_user.id,
+            context="onboarding_paywall",
+        )
+        onboarding_preview_enabled = bool(price_data.get("onboarding_preview_enabled"))
+    except Exception as exc:
+        logger.warning("Failed to load onboarding preview flag: %s", exc)
+        onboarding_preview_enabled = False
+
     promo_text = (
         "<b>🔥 Скидка 70% только первый час!</b>\n\n"
         "<b>Полный доступ за 389₽</b> вместо <s>1500₽</s>:\n\n"
@@ -487,9 +497,17 @@ async def _show_onboarding_paywall(callback: CallbackQuery, analytics: Analytics
         "<b>Не упусти шанс активировать доступ по сниженной цене.</b>"
     )
 
-    payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    payment_buttons = [
         [InlineKeyboardButton(text="Перейти к оплате 💜", callback_data="onboarding_pay")],
-    ])
+    ]
+    if onboarding_preview_enabled:
+        payment_buttons.append([
+            InlineKeyboardButton(
+                text="Посмотреть, что умеет бот 👀",
+                callback_data="preview_home",
+            )
+        ])
+    payment_keyboard = InlineKeyboardMarkup(inline_keyboard=payment_buttons)
 
     if WELCOME_PRICE_IMAGE_PATH.exists():
         await callback.message.answer_photo(

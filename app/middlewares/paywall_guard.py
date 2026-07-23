@@ -55,6 +55,8 @@ class PaywallGuardMiddleware(BaseMiddleware):
                 or event.data.startswith("buy_tier_")
                 or event.data.startswith("check_yookassa_")
                 or event.data == "onboarding_pay"
+                # The preview router is read-only and validates its own kill switch.
+                or event.data.startswith("preview_")
             ):
                 return await handler(event, data)
 
