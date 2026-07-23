@@ -25,7 +25,24 @@ ONBOARDING_PUSH_SLUGS = {
     "onboarding_reminder_2",
 }
 PAYMENT_PUSH_OFFERS = {
+    "onboarding_paywall_reminder_1": {
+        "generations": 20,
+        "rubles": 289,
+        "source": "onboarding_paywall_reminder_1",
+    },
+    "onboarding_paywall_reminder_2": {
+        "generations": 20,
+        "rubles": 249,
+        "source": "onboarding_paywall_reminder_2",
+    },
     "first_payment_discount": {"generations": 20, "rubles": 289, "source": "first_payment_discount"},
+}
+PHOTOSESSIONS_PUSH_SLUGS = {
+    "weekly_monday",
+    "daily_thursday",
+    "daily_friday",
+    "daily_saturday",
+    "daily_sunday",
 }
 
 WELCOME_PROMO_IMAGE_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -384,6 +401,11 @@ async def _handle_start_push(message: Message, state: FSMContext, analytics: Ana
             analytics=analytics,
             source=payment_offer["source"],
         )
+        return
+
+    if push_slug in PHOTOSESSIONS_PUSH_SLUGS:
+        from app.handlers.photosessions import handle_photosessions
+        await handle_photosessions(message, analytics)
         return
 
     if await _check_onboarding_paywall(message, state):
