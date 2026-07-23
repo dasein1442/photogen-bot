@@ -12,6 +12,7 @@ from app.services.tg_sender import download_photo, send_photos, SendResult
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
+from app.services.generation_access import require_generations
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -38,12 +39,23 @@ async def handle_photosession_choice(callback: CallbackQuery, state: FSMContext,
     # Получаем данные пользователя и тип фотосессии из state
     data = await state.get_data()
     ps_type = data.get("ps_type", "female")
+    required_generations = int(data.get("photosession_cost") or 1)
 
     try:
         user_data = await backend.get_user(telegram_id=callback.from_user.id)
     except Exception as e:
         logger.error(f"Ошибка получения данных пользователя: {e}", exc_info=True)
         await callback.message.answer("⚠️ Не удалось получить данные. Попробуй позже.")
+        await callback.answer()
+        return
+
+    if not await require_generations(
+        callback.message,
+        callback.from_user.id,
+        required=required_generations,
+        action="запустить эту фотосессию",
+        analytics=analytics,
+    ):
         await callback.answer()
         return
 

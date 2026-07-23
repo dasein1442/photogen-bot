@@ -10,6 +10,7 @@ from app.services.tg_sender import download_photo, send_photos
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
+from app.services.generation_access import require_generations
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -18,6 +19,15 @@ router = Router()
 @router.message(F.text == "🎲 Случайное фото")
 async def handle_random_photo(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Обработка кнопки 'Случайное фото'."""
+    if not await require_generations(
+        message,
+        message.from_user.id,
+        required=1,
+        action="создать случайное фото",
+        analytics=analytics,
+    ):
+        return
+
     try:
         user_data = await backend.get_user(telegram_id=message.from_user.id)
     except Exception as e:

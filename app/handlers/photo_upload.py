@@ -1,8 +1,7 @@
 import logging
-from pathlib import Path
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
 from app.api.backend import backend
@@ -16,9 +15,6 @@ from app.handlers.random_photo import _do_random_generation
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-WELCOME_PRICE_IMAGE_PATH = Path(__file__).resolve().parents[1] / "assets" / "welcome_price.jpg"
-
 
 async def _handle_upload(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Загрузка фото, установка как profile photo, авто-генерация если пришли из flow."""
@@ -402,7 +398,7 @@ async def handle_photo_feedback(callback: CallbackQuery, state: FSMContext, anal
             ]),
         )
         if context == "ob":
-            await _show_onboarding_paywall(callback, analytics)
+            await _show_onboarding_offer_and_menu(callback, analytics)
         else:
             await callback.message.answer(
                 "Хочешь ещё? Выбери фотосессию в меню или отправь новое фото 📸",
@@ -460,7 +456,7 @@ async def handle_dislike_reason(callback: CallbackQuery, state: FSMContext, anal
     )
 
     if context == "ob":
-        await _show_onboarding_paywall(callback, analytics)
+        await _show_onboarding_offer_and_menu(callback, analytics)
     else:
         await callback.message.answer(
             "Спасибо за отзыв! Мы учтём это 🙏\n\n"
@@ -470,64 +466,27 @@ async def handle_dislike_reason(callback: CallbackQuery, state: FSMContext, anal
     await callback.answer()
 
 
-async def _show_onboarding_paywall(callback: CallbackQuery, analytics: AnalyticsClient):
-    """Show welcome_price promo image with discount text and payment button."""
-    await analytics.track("onboarding_next_clicked", user_id=str(callback.from_user.id))
+async def _show_onboarding_offer_and_menu(callback: CallbackQuery, analytics: AnalyticsClient):
+    """Finish onboarding without locking the user out of the product."""
+    await analytics.track("onboarding_offer_shown", user_id=str(callback.from_user.id))
 
-    try:
-        price_data = await backend.get_price(
-            callback.from_user.id,
-            context="onboarding_paywall",
-        )
-        onboarding_preview_enabled = bool(price_data.get("onboarding_preview_enabled"))
-    except Exception as exc:
-        logger.warning("Failed to load onboarding preview flag: %s", exc)
-        onboarding_preview_enabled = False
-
-    promo_text = (
-        "<b>🔥 Скидка 70% только первый час!</b>\n\n"
-        "<b>Полный доступ за 389₽</b> вместо <s>1500₽</s>:\n\n"
-        "– 80+ готовых образов\n"
-        "– ИИ-фотошоп и генерация по своим промптам\n"
-        "– Оживление фото\n"
-        "– Мужские и парные фотосеты\n\n"
-        "✨ Всё это по цене дешевле кофе с круассаном ☕️🥐\n"
-        "Но результат останется навсегда — как твои лучшие фото.\n\n"
-        "<b>Акция действует только 1 час ⏳</b>\n"
-        "<b>Не упусти шанс активировать доступ по сниженной цене.</b>"
+    await callback.message.answer(
+        "<b>Первую магию ты уже увидел ✨</b>\n\n"
+        "Теперь можно спокойно посмотреть фотосессии и возможности Кадрицы. "
+        "Чтобы запустить новый результат, понадобятся генерации.",
+        parse_mode="HTML",
+        reply_markup=get_buy_keyboard(),
     )
-
-    payment_buttons = [
-        [InlineKeyboardButton(text="Перейти к оплате 💜", callback_data="onboarding_pay")],
-    ]
-    if onboarding_preview_enabled:
-        payment_buttons.append([
-            InlineKeyboardButton(
-                text="Посмотреть, что умеет бот 👀",
-                callback_data="preview_home",
-            )
-        ])
-    payment_keyboard = InlineKeyboardMarkup(inline_keyboard=payment_buttons)
-
-    if WELCOME_PRICE_IMAGE_PATH.exists():
-        await callback.message.answer_photo(
-            photo=FSInputFile(str(WELCOME_PRICE_IMAGE_PATH)),
-            caption=promo_text,
-            parse_mode="HTML",
-            reply_markup=payment_keyboard,
-        )
-    else:
-        await callback.message.answer(
-            promo_text,
-            parse_mode="HTML",
-            reply_markup=payment_keyboard,
-        )
+    await callback.message.answer(
+        "Главное меню 👇",
+        reply_markup=get_main_menu_keyboard(),
+    )
 
 
 @router.callback_query(lambda callback: callback.data == "onboarding_next")
 async def handle_onboarding_next(callback: CallbackQuery, state: FSMContext, analytics: AnalyticsClient):
-    """Legacy handler for old 'Перейти дальше' button — redirects to paywall."""
-    await _show_onboarding_paywall(callback, analytics)
+    """Legacy handler for old buttons — open the regular product menu."""
+    await _show_onboarding_offer_and_menu(callback, analytics)
     await callback.answer()
 
 

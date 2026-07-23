@@ -113,7 +113,7 @@ async def start_payment_flow(message, telegram_id: int, analytics: AnalyticsClie
 
 
 async def start_onboarding_payment(message, telegram_id: int, state: FSMContext, analytics: AnalyticsClient | None = None):
-    """Create onboarding payment directly (single tier, no selection needed)."""
+    """Create a legacy onboarding payment without locking the product menu."""
     try:
         price_data = await backend.get_price(telegram_id, context="onboarding_paywall")
         tier = price_data["tiers"][0]
@@ -128,7 +128,6 @@ async def start_onboarding_payment(message, telegram_id: int, state: FSMContext,
         await message.answer("⚠️ Тариф недоступен.")
         return
 
-    await state.set_state(PhotoUploadStates.onboarding_paywall)
     await _create_and_send_payment(message, telegram_id, generations, rubles, analytics, source="onboarding")
 
 

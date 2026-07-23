@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 
 from app.api.backend import backend
+from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.onboarding import get_welcome_keyboard, get_more_examples_keyboard, get_gender_choice_keyboard
 from app.services.analytics_sdk import AnalyticsClient
 from app.services.yandex_metrika import metrika
@@ -105,10 +106,14 @@ async def _show_welcome(message: Message):
         )
 
 
-async def _send_onboarding_paywall(message: Message, telegram_id: int, state: FSMContext):
-    """Show paywall for user who completed onboarding but hasn't purchased. Go directly to payment."""
-    from app.handlers.payment import start_onboarding_payment
-    await start_onboarding_payment(message, telegram_id, state)
+async def _show_completed_onboarding_menu(message: Message, state: FSMContext) -> None:
+    """Return an unpaid onboarding user to the product instead of a hard paywall."""
+    await state.clear()
+    await message.answer(
+        "Ты уже прошёл пробу — выбирай, что посмотреть дальше 👇\n\n"
+        "Генерации понадобятся, когда будешь готов создать новый результат.",
+        reply_markup=get_main_menu_keyboard(),
+    )
 
 
 async def _show_upload_photo_prompt(message: Message, state: FSMContext):
@@ -179,14 +184,14 @@ async def _register_user(message: Message, source: str | None = None) -> dict:
 
 
 async def _check_onboarding_paywall(message: Message, state: FSMContext) -> bool:
-    """Check if user completed onboarding but hasn't purchased. Returns True if paywall shown."""
+    """Route completed unpaid users to the menu. Returns whether it was shown."""
     try:
         t0 = time.monotonic()
         user_data = await backend.get_user(telegram_id=message.from_user.id)
         logger.info(f"[tg={message.from_user.id}] get_user took {time.monotonic() - t0:.2f}s")
         user_info = user_data.get("user", {})
         if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
-            await _send_onboarding_paywall(message, message.from_user.id, state)
+            await _show_completed_onboarding_menu(message, state)
             return True
     except Exception:
         pass
@@ -203,7 +208,7 @@ async def _resume_onboarding_from_user_state(message: Message, state: FSMContext
 
     user_info = user_data.get("user", {})
     if user_info.get("onboarding_completed") and not user_info.get("has_purchased"):
-        await _send_onboarding_paywall(message, message.from_user.id, state)
+        await _show_completed_onboarding_menu(message, state)
         return
 
     gender = user_info.get("gender")

@@ -13,6 +13,7 @@ from app.services.tg_sender import download_photo, send_photos
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
+from app.services.generation_access import require_generations
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -22,6 +23,14 @@ router = Router()
 async def handle_prompt_gen_button(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Start the unified image creation and editing flow."""
     await analytics.track("prompt_generation_opened", user_id=str(message.from_user.id))
+    if not await require_generations(
+        message,
+        message.from_user.id,
+        required=2,
+        action="создать или изменить фото",
+        analytics=analytics,
+    ):
+        return
     await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_prompt_gen_photo)
     await state.set_data({"prompt_gen_photo_ids": []})

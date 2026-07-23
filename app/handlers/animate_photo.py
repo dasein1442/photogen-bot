@@ -10,6 +10,7 @@ from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
 from app.services.analytics_sdk import AnalyticsClient
 from app.services.generation_errors import CONTENT_MODERATION_MESSAGE, has_content_moderation_error
+from app.services.generation_access import require_generations
 from app.services.tg_sender import download_photo, send_video
 from app.states.photo import PhotoUploadStates
 
@@ -35,6 +36,14 @@ MENU_BUTTONS = {
 async def handle_animate_photo_button(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Start the photo-to-video flow."""
     await analytics.track("photo_animation_opened", user_id=str(message.from_user.id))
+    if not await require_generations(
+        message,
+        message.from_user.id,
+        required=ANIMATION_COST,
+        action="оживить фото",
+        analytics=analytics,
+    ):
+        return
     await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_animation_photo)
     await message.answer(

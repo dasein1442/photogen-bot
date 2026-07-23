@@ -24,11 +24,6 @@ async def handle_menu_command(message: Message, state: FSMContext, analytics: An
         await message.answer("Сначала пройди онбординг — отправь /start")
         return
 
-    if not user_info.get("has_purchased"):
-        from app.handlers.payment import start_onboarding_payment
-        await start_onboarding_payment(message, message.from_user.id, state)
-        return
-
     await state.clear()
     await analytics.track("menu_opened", user_id=str(message.from_user.id), properties={"source": "command"})
     await message.answer(

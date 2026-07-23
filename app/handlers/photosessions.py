@@ -226,14 +226,18 @@ async def handle_photosession_view(callback: CallbackQuery, state: FSMContext, a
 
     await analytics.track("photosession_viewed", user_id=str(callback.from_user.id), properties={"photosession_id": photosession_id, "type": ps_type})
 
-    # Сохраняем тип фотосессии (может быть из самой фотосессии или из выбора)
-    actual_type = ps.get("type", ps_type)
-    await state.update_data(ps_type=actual_type, photosession_id=photosession_id)
-
     name = ps.get("name", f"Фотосессия {photosession_id}")
     description = ps.get("description", "")
     example_url = ps.get("example")
     preset_count = ps.get("preset_count")
+
+    # Сохраняем тип и цену фотосессии для purchase gate перед загрузкой фото.
+    actual_type = ps.get("type", ps_type)
+    await state.update_data(
+        ps_type=actual_type,
+        photosession_id=photosession_id,
+        photosession_cost=int(preset_count or 1),
+    )
 
     detail_text = f"<b>{name}</b>"
     if description:

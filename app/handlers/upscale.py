@@ -11,6 +11,7 @@ from app.services.tg_sender import download_photo, send_photos
 from app.states.photo import PhotoUploadStates
 from app.keyboards.common import get_main_menu_keyboard
 from app.keyboards.payment import get_buy_keyboard
+from app.services.generation_access import require_generations
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -20,6 +21,14 @@ router = Router()
 async def handle_upscale_button(message: Message, state: FSMContext, analytics: AnalyticsClient):
     """Пользователь нажал 'Улучшить кач-во' — просим отправить фото."""
     await analytics.track("upscale_opened", user_id=str(message.from_user.id))
+    if not await require_generations(
+        message,
+        message.from_user.id,
+        required=2,
+        action="улучшить качество фото",
+        analytics=analytics,
+    ):
+        return
     await state.clear()
     await state.set_state(PhotoUploadStates.waiting_for_upscale_photo)
 
