@@ -475,15 +475,16 @@ async def _show_onboarding_paywall(callback: CallbackQuery, analytics: Analytics
     await analytics.track("onboarding_next_clicked", user_id=str(callback.from_user.id))
 
     promo_text = (
-        "🔥 Скидка 70% только первый час!\n"
-        "Полный доступ за 389₽ вместо 1500₽\n\n"
-        "Получи не просто пробу, а весь функционал навсегда 👇\n\n"
+        "<b>🔥 Скидка 70% только первый час!</b>\n\n"
+        "<b>Полный доступ за 389₽</b> вместо <s>1500₽</s>:\n\n"
         "– 80+ готовых образов\n"
-        "– Более 15 фотосессий в разных стилях\n\n"
+        "– ИИ-фотошоп и генерация по своим промптам\n"
+        "– Оживление фото\n"
+        "– Мужские и парные фотосеты\n\n"
         "✨ Всё это по цене дешевле кофе с круассаном ☕️🥐\n"
         "Но результат останется навсегда — как твои лучшие фото.\n\n"
-        "Акция действует только 1 час ⏳\n"
-        "Не упусти шанс активировать доступ по сниженной цене."
+        "<b>Акция действует только 1 час ⏳</b>\n"
+        "<b>Не упусти шанс активировать доступ по сниженной цене.</b>"
     )
 
     payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -494,11 +495,13 @@ async def _show_onboarding_paywall(callback: CallbackQuery, analytics: Analytics
         await callback.message.answer_photo(
             photo=FSInputFile(str(WELCOME_PRICE_IMAGE_PATH)),
             caption=promo_text,
+            parse_mode="HTML",
             reply_markup=payment_keyboard,
         )
     else:
         await callback.message.answer(
             promo_text,
+            parse_mode="HTML",
             reply_markup=payment_keyboard,
         )
 
